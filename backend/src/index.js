@@ -185,38 +185,9 @@ mongoose.set('autoIndex', process.env.NODE_ENV !== 'production'); // Don't auto-
         await connectToMongo();
         console.log("Direct MongoDB client connection established");
         
-        // Initialize admin user if needed - with retry logic
-        let adminInitAttempts = 0;
-        const maxAdminInitAttempts = 2;
-        let adminInitialized = false;
-        
-        while (adminInitAttempts < maxAdminInitAttempts && !adminInitialized) {
-          try {
-            console.log(`Admin user initialization attempt ${adminInitAttempts + 1}/${maxAdminInitAttempts}`);
-            adminInitialized = await initializeAdminUser();
-            
-            if (adminInitialized) {
-              console.log('Admin user initialized successfully');
-            } else {
-              console.log('Admin user initialization returned false, may need retry');
-              adminInitAttempts++;
-            }
-          } catch (error) {
-            console.error(`Admin initialization attempt ${adminInitAttempts + 1} failed:`, error);
-            adminInitAttempts++;
-            
-            if (adminInitAttempts < maxAdminInitAttempts) {
-              console.log('Retrying admin user initialization after error...');
-              // Wait a bit before retrying
-              await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-          }
-        }
-        
-        if (!adminInitialized) {
-          console.warn('⚠️ Admin user initialization unsuccessful after multiple attempts');
-          console.warn('⚠️ The application will continue, but admin features may be limited');
-        }
+        // Skip admin user initialization for now to avoid blocking server startup
+        console.log('Skipping admin user initialization to ensure server starts properly');
+        console.log('Admin user can be created manually later if needed');
         
         // Database connections successful, break out of retry loop
         break;

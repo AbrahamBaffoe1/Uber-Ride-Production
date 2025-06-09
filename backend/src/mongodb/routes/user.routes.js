@@ -1,0 +1,311 @@
+/**
+ * User Routes
+ * Handles user profile and related endpoints
+ */
+import express from 'express';
+import { authenticate } from '../middlewares/auth.middleware.js';
+import User from '../models/User.js';
+
+const router = express.Router();
+
+/**
+ * @route GET /api/v1/mongo/users/profile
+ * @desc Get current user's profile
+ * @access Private
+ */
+router.get('/profile', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    
+    // Find user and exclude sensitive fields
+    const user = await User.findById(userId).select('-password -resetPasswordToken -resetPasswordExpires');
+    
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+    
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        user: {
+          id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          role: user.role,
+          profilePicture: user.profilePicture,
+          isEmailVerified: user.isEmailVerified,
+          isPhoneVerified: user.isPhoneVerified,
+          status: user.status,
+          accountStatus: user.accountStatus,
+          twoFactorEnabled: user.twoFactorEnabled,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+          // Include role-specific profile data
+          ...(user.role === 'rider' && {
+            riderProfile: user.riderProfile
+          }),
+          ...(user.role === 'passenger' && {
+            passengerProfile: user.passengerProfile
+          })
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching user profile:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch user profile'
+    });
+  }
+});
+
+/**
+ * @route PUT /api/v1/mongo/users/profile
+ * @desc Update user profile
+ * @access Private
+ */
+router.put('/profile', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const updates = req.body;
+    
+    // Fields that cannot be updated through this endpoint
+    const restrictedFields = ['password', 'email', 'phoneNumber', 'role', 'status', 'accountStatus', 'isEmailVerified', 'isPhoneVerified'];
+    
+    // Remove restricted fields from updates
+    restrictedFields.forEach(field => delete updates[field]);
+    
+    // Update user
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { 
+        ...updates,
+        updatedAt: new Date()
+      },
+      { 
+        new: true, 
+        runValidators: true 
+      }
+    ).select('-password -resetPasswordToken -resetPasswordExpires');
+    
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+    
+    return res.status(200).json({
+      status: 'success',
+      message: 'Profile updated successfully',
+      data: {
+        user: {
+          id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          role: user.role,
+          profilePicture: user.profilePicture,
+          isEmailVerified: user.isEmailVerified,
+          isPhoneVerified: user.isPhoneVerified,
+          status: user.status,
+          accountStatus: user.accountStatus,
+          twoFactorEnabled: user.twoFactorEnabled,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+          ...(user.role === 'rider' && {
+            riderProfile: user.riderProfile
+          }),
+          ...(user.role === 'passenger' && {
+            passengerProfile: user.passengerProfile
+          })
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to update user profile'
+    });
+  }
+});
+
+/**
+ * @route POST /api/v1/mongo/users/profile/photo
+ * @desc Update user profile picture
+ * @access Private
+ */
+router.post('/profile/photo', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { profilePicture } = req.body;
+    
+    if (!profilePicture) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Profile picture URL is required'
+      });
+    }
+    
+    // Update user profile picture
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { 
+        profilePicture,
+        updatedAt: new Date()
+      },
+      { new: true }
+    ).select('-password -resetPasswordToken -resetPasswordExpires');
+    
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+    
+    return res.status(200).json({
+      status: 'success',
+      message: 'Profile picture updated successfully',
+      data: {
+        profilePicture: user.profilePicture
+      }
+    });
+  } catch (error) {
+    console.error('Error updating profile picture:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to update profile picture'
+    });
+  }
+});
+
+/**
+ * @route DELETE /api/v1/mongo/users/account
+ * @desc Delete user account (soft delete)
+ * @access Private
+ */
+router.delete('/account', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { password } = req.body;
+    
+    if (!password) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Password is required to delete account'
+      });
+    }
+    
+    // Find user and verify password
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+    
+    // Verify password
+    const isPasswordValid = await user.comparePassword(password);
+    
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Invalid password'
+      });
+    }
+    
+    // Soft delete - update account status
+    user.accountStatus = 'suspended';
+    user.status = 'inactive';
+    user.updatedAt = new Date();
+    await user.save();
+    
+    return res.status(200).json({
+      status: 'success',
+      message: 'Account deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting account:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to delete account'
+    });
+  }
+});
+
+/**
+ * @route PUT /api/v1/mongo/users/settings/2fa
+ * @desc Enable/disable two-factor authentication
+ * @access Private
+ */
+router.put('/settings/2fa', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { enabled, method } = req.body;
+    
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Enabled status is required'
+      });
+    }
+    
+    const updateData = {
+      twoFactorEnabled: enabled,
+      updatedAt: new Date()
+    };
+    
+    if (enabled && method) {
+      if (!['sms', 'email', 'authenticator'].includes(method)) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Invalid 2FA method'
+        });
+      }
+      updateData.twoFactorMethod = method;
+    } else if (!enabled) {
+      updateData.twoFactorMethod = null;
+    }
+    
+    // Update user
+    const user = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true }
+    ).select('twoFactorEnabled twoFactorMethod');
+    
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+    
+    return res.status(200).json({
+      status: 'success',
+      message: `Two-factor authentication ${enabled ? 'enabled' : 'disabled'} successfully`,
+      data: {
+        twoFactorEnabled: user.twoFactorEnabled,
+        twoFactorMethod: user.twoFactorMethod
+      }
+    });
+  } catch (error) {
+    console.error('Error updating 2FA settings:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to update 2FA settings'
+    });
+  }
+});
+
+export default router;

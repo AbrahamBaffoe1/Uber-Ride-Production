@@ -90,9 +90,9 @@ async function connectToMongo() {
       
       console.log("Connected successfully to MongoDB Atlas!");
       
-      // Initialize database connections with timeouts
-      riderDb = client.db("okada-rider").setMaxTimeMS(TIMEOUT_VALUES.OPERATION_TIMEOUT);
-      passengerDb = client.db("okada-passenger").setMaxTimeMS(TIMEOUT_VALUES.OPERATION_TIMEOUT);
+      // Initialize database connections
+      riderDb = client.db("okada-rider");
+      passengerDb = client.db("okada-passenger");
       
       // Perform health check
       if (await checkConnectionHealth()) {

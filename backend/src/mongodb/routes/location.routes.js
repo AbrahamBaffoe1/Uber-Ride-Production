@@ -8,8 +8,27 @@ import RiderLocation from '../models/RiderLocation.js';
 import mapsService from '../../services/maps.service.js';
 import * as socketService from '../../services/socket.service.js';
 import { isValidObjectId } from 'mongoose';
+import * as locationsController from '../controllers/locations.controller.js';
 
 const router = express.Router();
+
+/**
+ * Passenger-specific location routes
+ */
+// Get saved locations
+router.get('/saved', authenticate, locationsController.getSavedLocations);
+
+// Get popular destinations
+router.get('/popular', authenticate, locationsController.getPopularDestinations);
+
+// Get nearest city center
+router.get('/city-center', authenticate, locationsController.getNearestCityCenter);
+
+// Save a location
+router.post('/save', authenticate, locationsController.saveLocation);
+
+// Delete a saved location
+router.delete('/saved/:locationId', authenticate, locationsController.deleteSavedLocation);
 
 /**
  * Helper function to check if the user ID is a temporary one

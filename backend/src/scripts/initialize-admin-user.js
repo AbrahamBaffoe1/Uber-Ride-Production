@@ -51,6 +51,12 @@ export const initializeAdminUser = async () => {
     
     // First, try using direct MongoDB operations which are more reliable for this use case
     try {
+      // Ensure mongoose connection is ready
+      if (!mongoose.connection.db) {
+        console.log('Database connection not ready, falling back to Mongoose operations...');
+        throw new Error('Database not ready');
+      }
+      
       // Get database and collection directly
       const db = mongoose.connection.db;
       const usersCollection = db.collection('users');
