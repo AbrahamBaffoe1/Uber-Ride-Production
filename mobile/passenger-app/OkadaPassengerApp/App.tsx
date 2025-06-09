@@ -3,7 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Provider } from 'react-redux';
 import { store } from './src/redux/store';
 import { LogBox, Platform } from 'react-native';
-rrimport AppNavigator from './src/navigation/AppNavigator';
+import AppNavigator from './src/navigation/AppNavigator';
 
 // Import native exception wrapper without causing type errors
 const NativeExceptionWrapper = Platform.OS === 'ios'
