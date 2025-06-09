@@ -293,7 +293,7 @@ export default function HomeScreenUber({ navigation }: Props) {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.menuButton}
-            onPress={() => navigation.navigate('Menu')}
+            onPress={() => navigation.navigate('Profile')}
           >
             <View style={styles.menuLine} />
             <View style={styles.menuLine} />
