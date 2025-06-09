@@ -27,6 +27,7 @@ import SettingsScreen from '../screens/settings/Settings';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SupportScreen from '../screens/helpsupport/HelpSupportScreen';
 import SafetyScreen from '../screens/safety/SafetyScreen';
+import CurrencySettingsScreen from '../screens/settings/CurrencySettingsScreen';
 
 const Stack = createStackNavigator<RootStackParamList>();
 
@@ -93,6 +94,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Payment" component={PaymentScreen} />
         <Stack.Screen name="SavedLocations" component={SavedLocationsScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="CurrencySettings" component={CurrencySettingsScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="Support" component={SupportScreen} />
         <Stack.Screen name="Safety" component={SafetyScreen} />

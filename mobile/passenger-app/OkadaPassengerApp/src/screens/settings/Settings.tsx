@@ -9,8 +9,12 @@ import {
   TextInput,
   Alert
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../../navigation/types';
 
 const SettingsScreen = () => {
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   // State for settings
   const [pushNotifications, setPushNotifications] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -281,6 +285,17 @@ const SettingsScreen = () => {
             language,
             ['English', 'Spanish', 'French', 'German', 'Japanese', 'Chinese']
           )}
+          
+          <TouchableOpacity 
+            style={styles.settingItem}
+            onPress={() => navigation.navigate('CurrencySettings')}
+          >
+            <View style={styles.settingTextContainer}>
+              <Text style={styles.settingTitle}>Currency</Text>
+              <Text style={styles.settingDescription}>Change your preferred currency for payments and fares</Text>
+            </View>
+            <Text style={styles.navigateIcon}>›</Text>
+          </TouchableOpacity>
           
           <TouchableOpacity style={styles.settingItem}>
             <View style={styles.settingTextContainer}>

@@ -227,6 +227,7 @@ export type RootStackParamList = {
   PromoCodes: undefined;
   Support: undefined;
   Settings: undefined;
+  CurrencySettings: undefined;
 };
 
 /**

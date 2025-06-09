@@ -8,12 +8,18 @@ import { Platform } from 'react-native';
 // Helper function to get the correct localhost address based on platform
 const getLocalhost = () => {
   if (Platform.OS === 'ios') {
-    return 'localhost'; // iOS simulator uses localhost
+    // Use direct IP instead of localhost name for better iOS simulator connectivity
+    return '127.0.0.1'; // Use direct IP instead of hostname
   } else if (Platform.OS === 'android') {
     return '10.0.2.2'; // Android emulator uses 10.0.2.2
+  } else if (Platform.OS === 'web') {
+    return window.location.hostname; // For web, use current hostname
   }
-  return 'localhost'; // Default for web or other platforms
+  return 'localhost'; // Default fallback
 };
+
+// For development overrides - uncomment and set your machine's IP if needed
+// const DEV_MACHINE_IP = '192.168.1.x'; // Set to your local network IP for physical device testing
 
 // Set the base URL for all API calls based on environment
 export const API_BASE_URL = __DEV__ 

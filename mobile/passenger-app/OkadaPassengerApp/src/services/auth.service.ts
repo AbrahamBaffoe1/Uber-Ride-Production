@@ -232,6 +232,36 @@ class AuthService {
       throw error;
     }
   }
+  
+  /**
+   * Update user profile
+   * @param userData Partial user data to update
+   */
+  async updateProfile(userData: any): Promise<any> {
+    try {
+      const response = await apiClient.put<any>(API_ENDPOINTS.USER.UPDATE_PROFILE, userData);
+      
+      // Handle different response formats
+      if (response?.data?.user) {
+        this.currentUser = { ...this.currentUser, ...response.data.user };
+        return { 
+          success: true, 
+          user: response.data.user 
+        };
+      } else if (response?.user) {
+        this.currentUser = { ...this.currentUser, ...response.user };
+        return { 
+          success: true, 
+          user: response.user 
+        };
+      }
+      
+      return { success: false };
+    } catch (error) {
+      console.error('Update profile error:', error);
+      return { success: false, error };
+    }
+  }
 
   /**
    * Logout user

@@ -312,47 +312,47 @@ export default function ModernHomeScreen({ navigation }: Props) {
     }
   };
 
-  // Ride type data
+  // Ride type data with realistic Nigerian pricing
   const rideTypes: RideType[] = [
     { 
-      id: 'standard', 
-      name: 'Standard', 
-      description: 'Affordable everyday rides', 
-      icon: '🚗', 
-      price: '$8-12', 
-      time: '5 min', 
-      capacity: '4',
-      color: '#000000'
+      id: 'motorcycle', 
+      name: 'Okada', 
+      description: 'Fast and affordable motorcycle rides', 
+      icon: '🏍️', 
+      price: '₦300-800', 
+      time: '3 min', 
+      capacity: '1',
+      color: '#ff6b35'
     },
     { 
-      id: 'comfort', 
-      name: 'Comfort', 
-      description: 'Newer cars with more room', 
-      icon: '🚙', 
-      price: '$12-16', 
-      time: '7 min', 
-      capacity: '4',
+      id: 'tricycle', 
+      name: 'Keke NAPEP', 
+      description: 'Comfortable three-wheeler rides', 
+      icon: '🛺', 
+      price: '₦500-1200', 
+      time: '5 min', 
+      capacity: '3',
       color: '#2B5CE6'
     },
     { 
-      id: 'xl', 
-      name: 'XL', 
-      description: 'Extra seats for groups', 
-      icon: '🚐', 
-      price: '$15-20', 
-      time: '10 min', 
-      capacity: '6',
-      color: '#276EF1'
-    },
-    { 
-      id: 'premium', 
-      name: 'Premium', 
-      description: 'High-end rides', 
-      icon: '🚘', 
-      price: '$20-30', 
-      time: '15 min', 
+      id: 'car', 
+      name: 'Standard Car', 
+      description: 'Comfortable car rides for individuals and families', 
+      icon: '🚗', 
+      price: '₦1000-2500', 
+      time: '7 min', 
       capacity: '4',
       color: '#000000'
+    },
+    { 
+      id: 'bicycle', 
+      name: 'Bicycle', 
+      description: 'Eco-friendly short distance rides', 
+      icon: '🚲', 
+      price: '₦200-500', 
+      time: '8 min', 
+      capacity: '1',
+      color: '#4CAF50'
     },
   ];
 
@@ -696,8 +696,9 @@ export default function ModernHomeScreen({ navigation }: Props) {
                     }
                   }}
                   query={{
-                    key: 'YOUR_API_KEY', // Note: In production, you'd use a real API key
+                    key: 'AIzaSyCyy70YM-Wx42jda2YPcs6k3sYKPMRK6u4', // Real Google Maps API key
                     language: 'en',
+                    components: 'country:ng', // Restrict to Nigeria
                   }}
                   fetchDetails={true}
                   styles={{
