@@ -37,7 +37,7 @@ interface Props {
   navigation: ForgotPasswordScreenNavigationProp;
 }
 
-// Production mode - connects to the real backend API
+// Always use the real backend API for all requests
 const DEV_MODE = false;
 
 // Premium Color Palette - Gold, Black and White
@@ -256,8 +256,13 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
           // The request was made and the server responded with a status code
           // that falls out of the range of 2xx
           if (error.response.status === 404) {
-            console.log(`API endpoint not found: ${API_BASE_URL}/otp/public/request`);
-            errorMessage = 'This feature is not available in the demo. In a production environment, a password reset email would be sent.';
+            console.log(`API endpoint not found or user not in database. Error:`, error.response.data);
+            // Special handling for the specific error in the task
+            if (error.response.data?.message === "User not found in rider database") {
+              errorMessage = 'We could not find your account in our database. Please try a different email or phone number, or contact support.';
+            } else {
+              errorMessage = 'The requested service is temporarily unavailable. Please try again later.';
+            }
           } else {
             errorMessage = error.response.data?.message || 
                            error.response.data?.error || 
