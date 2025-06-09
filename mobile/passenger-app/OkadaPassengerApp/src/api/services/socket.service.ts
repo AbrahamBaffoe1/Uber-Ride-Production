@@ -19,6 +19,9 @@ export type SocketEvent =
   // Notification events
   | 'notification:new'
   | 'notification:read_confirmed'
+  // Rider availability events
+  | 'riders:availability_update'
+  | 'riders:density_map'
   // Error events
   | 'error'
   // Connection events
@@ -83,6 +86,69 @@ export interface NotificationPayload {
   message: string;
   data: any;
   priority: 'high' | 'medium' | 'low';
+  timestamp: string;
+}
+
+export interface RiderAvailabilityPayload {
+  totalRiders: number;
+  availableRiders: number;
+  hasRidersAvailable: boolean;
+  nearestRiderDistance?: number;
+  nearestRiderETA?: number;
+  averageETA?: number;
+  timestamp: string;
+}
+
+export interface RiderDensityMapPayload {
+  timestamp: string;
+  densityMap: Array<{
+    location: {
+      lat: number;
+      lng: number;
+    };
+    stats: {
+      totalRiders: number;
+      availableRiders: number;
+      hasRidersAvailable: boolean;
+    };
+    distance: number;
+  }>;
+}
+
+export interface FareEstimatePayload {
+  success: boolean;
+  fare: {
+    baseFare: number;
+    distanceFare: number;
+    timeFare: number;
+    subtotal: number;
+    serviceFee: number;
+    bookingFee: number;
+    totalFare: number;
+    currency: string;
+    multipliers: {
+      time: number;
+      demand: number;
+      weather: number;
+      event: number;
+      combined: number;
+    };
+  };
+  distance: {
+    value: number;
+    text: string;
+    weightedValue: number;
+    unit: string;
+    straightLine: boolean;
+  };
+  duration: {
+    value: number;
+    text: string;
+    unit: string;
+  };
+  vehicleType: string;
+  estimatedPickupTime: string;
+  riderAvailability?: RiderAvailabilityPayload;
   timestamp: string;
 }
 
@@ -226,6 +292,15 @@ class SocketService {
 
     this.socket.on('ride:no_riders_available', (data: { rideId: string; message: string }) => {
       this.emitEvent('ride:no_riders_available', data);
+    });
+    
+    // Rider availability events
+    this.socket.on('riders:availability_update', (data: RiderAvailabilityPayload) => {
+      this.emitEvent('riders:availability_update', data);
+    });
+    
+    this.socket.on('riders:density_map', (data: RiderDensityMapPayload) => {
+      this.emitEvent('riders:density_map', data);
     });
 
     this.socket.on('ride:accepted', (data: RideAcceptedPayload) => {
@@ -392,6 +467,7 @@ class SocketService {
     estimatedDistance?: number;
     estimatedDuration?: number;
     paymentMethodId?: string;
+    vehicleType?: string;
   }): string | null {
     if (!this.socket || !this.connected) {
       // Add to offline queue if not connected
@@ -399,6 +475,65 @@ class SocketService {
     }
 
     this.socket.emit('ride:request', rideData);
+    return null;
+  }
+  
+  /**
+   * Update passenger location for rider availability tracking
+   * @param location Passenger location
+   * @returns Queue item ID if queued, null if sent immediately
+   */
+  updateLocation(location: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+  }): string | null {
+    if (!this.socket || !this.connected) {
+      // Add to offline queue if not connected
+      return this.addToOfflineQueue('location:update', { location }, 2);
+    }
+
+    this.socket.emit('location:update', { location });
+    return null;
+  }
+  
+  /**
+   * Request fare estimate
+   * @param data Fare estimate request data
+   * @returns Queue item ID if queued, null if sent immediately
+   */
+  requestFareEstimate(data: {
+    origin: {
+      latitude: number;
+      longitude: number;
+    };
+    destination: {
+      latitude: number;
+      longitude: number;
+    };
+    vehicleType?: string;
+    distanceType?: string;
+  }): string | null {
+    if (!this.socket || !this.connected) {
+      // Add to offline queue if not connected
+      return this.addToOfflineQueue('fare:estimate', data, 2);
+    }
+
+    this.socket.emit('fare:estimate', data);
+    return null;
+  }
+  
+  /**
+   * Request rider density map
+   * @returns Queue item ID if queued, null if sent immediately
+   */
+  requestRiderDensityMap(): string | null {
+    if (!this.socket || !this.connected) {
+      // Add to offline queue if not connected
+      return this.addToOfflineQueue('riders:request_density_map', {}, 1);
+    }
+
+    this.socket.emit('riders:request_density_map');
     return null;
   }
 
