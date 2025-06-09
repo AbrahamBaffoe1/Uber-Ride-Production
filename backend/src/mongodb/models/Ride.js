@@ -67,8 +67,8 @@ const rideSchema = new mongoose.Schema({
       'failed',           // Ride failed for some reason
       'paid'              // Payment completed
     ],
-    default: 'requested',
-    index: true
+    default: 'requested'
+    // Index is defined explicitly below
   },
   scheduledPickupTime: Date, // For scheduled rides
   actualPickupTime: Date,

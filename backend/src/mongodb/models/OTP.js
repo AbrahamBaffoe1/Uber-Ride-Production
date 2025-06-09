@@ -41,8 +41,8 @@ const OTPSchema = new Schema({
   // When the OTP expires
   expiresAt: {
     type: Date,
-    required: true,
-    index: true
+    required: true
+    // Index is defined explicitly below with TTL setting
   },
   
   // Whether the OTP has been used

@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 import * as pricingEngine from '../../services/pricing-engine.service.js';
 import * as riderMatching from '../../services/rider-matching.service.js';
 import * as realTimeAvailability from '../../services/real-time-availability.service.js';
-import { authenticateToken } from '../../middleware/auth.js';
+import { authenticate as authenticateToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 

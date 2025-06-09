@@ -22,8 +22,8 @@ const tokenBlacklistSchema = new mongoose.Schema({
   },
   expiresAt: {
     type: Date,
-    required: true,
-    index: { expires: 0 } // This will automatically remove the document when expiresAt is reached
+    required: true
+    // Index is defined explicitly below
   },
   createdAt: {
     type: Date,
@@ -32,9 +32,9 @@ const tokenBlacklistSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Add indexes for better query performance
-tokenBlacklistSchema.index({ token: 1 });
+// Note: token field already has an index due to unique: true
 tokenBlacklistSchema.index({ user: 1 });
-tokenBlacklistSchema.index({ expiresAt: 1 });
+tokenBlacklistSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index for automatic cleanup
 
 // Static method to check if token is blacklisted
 tokenBlacklistSchema.statics.isBlacklisted = async function(token) {

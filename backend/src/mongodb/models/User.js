@@ -147,9 +147,9 @@ const userSchema = new mongoose.Schema({
   bufferTimeoutMS: parseInt(process.env.MONGODB_BUFFER_TIMEOUT_MS) || 120000 // Use environment variable or default to 120000ms
 });
 
-// Add indexes for better query performance - remove duplicates
-userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ phoneNumber: 1 }, { unique: true });
+// Add indexes for better query performance
+// Note: Mongoose automatically creates indexes for fields with unique: true
+// so we don't need to explicitly define indexes for email and phoneNumber
 userSchema.index({ status: 1 });
 
 // Pre-save hook to hash password
