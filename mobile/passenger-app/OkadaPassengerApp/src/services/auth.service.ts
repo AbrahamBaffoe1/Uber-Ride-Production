@@ -57,6 +57,11 @@ class AuthService {
    */
   async login(identifier: string, password: string): Promise<any> {
     try {
+      // Validate inputs
+      if (!identifier || !password) {
+        throw new Error('Email/phone and password are required');
+      }
+      
       // Determine if identifier is email or phone
       const isEmail = identifier.includes('@');
       
@@ -66,28 +71,49 @@ class AuthService {
         password
       });
       
-      // Check if OTP verification is required
-      if (response?.data?.requiresOTP) {
+      console.log('Login response:', response); // Debug log
+      
+      // Check if verification is required
+      if (response?.requiresVerification || response?.data?.requiresVerification) {
         return {
-          requiresOTP: true,
-          userId: response.data.userId
+          requiresVerification: true,
+          userId: response.userId || response.data?.userId,
+          tempToken: response.tempToken || response.data?.tempToken,
+          user: response.user || response.data?.user
         };
       }
       
-      // Store tokens
-      if (response?.data?.tokens) {
-        const { token, refreshToken } = response.data.tokens;
-        await AsyncStorage.multiSet([
-          ['authToken', token],
-          ['refreshToken', refreshToken]
-        ]);
-        
-        // Update auth state
-        this.currentUser = response.data.user;
-        this.setAuthState(true);
+      // Handle MongoDB response structure: { status: 'success', data: { user, token, refreshToken } }
+      let token, refreshToken, user;
+      
+      // Check different response structures
+      if (response?.data?.token) {
+        // Response has data.token
+        token = response.data.token;
+        refreshToken = response.data.refreshToken || token;
+        user = response.data.user;
+      } else if (response?.token) {
+        // Response has token directly
+        token = response.token;
+        refreshToken = response.refreshToken || token;
+        user = response.user;
+      } else {
+        throw new Error('Invalid response format - no token received');
       }
       
-      return response.data;
+      // Store tokens
+      await AsyncStorage.multiSet([
+        ['authToken', token],
+        ['refreshToken', refreshToken]
+      ]);
+      
+      console.log('Tokens stored successfully'); // Debug log
+      
+      // Update auth state
+      this.currentUser = user;
+      this.setAuthState(true);
+      
+      return response?.data || response;
     } catch (error) {
       console.error('Login error:', error);
       throw error;

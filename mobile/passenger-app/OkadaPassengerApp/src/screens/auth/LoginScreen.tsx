@@ -231,7 +231,8 @@ export default function LoginScreen({ navigation }: Props) {
       setLocalLoading(true);
       
       // Use Redux for state management
-      await dispatch(login({ email: email.trim(), password }));
+      // Redux expects 'identifier' not 'email'
+      await dispatch(login({ identifier: email.trim(), password })).unwrap();
       
       // If we get here, login was successful
       // Navigate to success screen, which will then redirect to Home

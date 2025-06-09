@@ -54,13 +54,14 @@ class LocationService {
         throw new Error('Authentication token not found');
       }
       
-      const response = await apiClient.get<ApiResponse<SavedLocation[]>>('/locations/saved');
+      const response = await apiClient.get<ApiResponse<any>>('/locations/saved');
       
       if (response.status !== 'success' || !response.data) {
         throw new Error(response.message || 'Failed to fetch saved locations');
       }
       
-      return response.data;
+      // Backend returns { status: 'success', data: { locations: [...] } }
+      return response.data.locations || [];
     } catch (error) {
       console.error('Error fetching saved locations:', error);
       return []; // Return empty array on error for graceful handling
@@ -125,13 +126,14 @@ class LocationService {
    */
   async getPopularDestinations(): Promise<PopularDestination[]> {
     try {
-      const response = await apiClient.get<ApiResponse<PopularDestination[]>>('/locations/popular');
+      const response = await apiClient.get<ApiResponse<any>>('/locations/popular');
       
       if (response.status !== 'success' || !response.data) {
         throw new Error(response.message || 'Failed to fetch popular destinations');
       }
       
-      return response.data;
+      // Backend returns { status: 'success', data: { destinations: [...] } }
+      return response.data.destinations || [];
     } catch (error) {
       console.error('Error fetching popular destinations:', error);
       // Return empty array instead of throwing to handle gracefully in UI
@@ -144,7 +146,7 @@ class LocationService {
    */
   async getNearestCityCenter(latitude: number, longitude: number): Promise<CityCenter | null> {
     try {
-      const response = await apiClient.get<ApiResponse<CityCenter>>('/locations/city-center', {
+      const response = await apiClient.get<ApiResponse<any>>('/locations/city-center', {
         params: { latitude, longitude }
       });
       
@@ -152,7 +154,17 @@ class LocationService {
         return null;
       }
       
-      return response.data;
+      // Backend returns { status: 'success', data: { cityCenter: {...} } }
+      const cityCenter = response.data.cityCenter;
+      if (cityCenter) {
+        return {
+          name: cityCenter.name,
+          latitude: cityCenter.coordinates.lat,
+          longitude: cityCenter.coordinates.lng
+        };
+      }
+      
+      return null;
     } catch (error) {
       console.error('Error fetching nearest city center:', error);
       return null;

@@ -52,15 +52,26 @@ class ApiClient {
           try {
             // Get refresh token and request new tokens
             const refreshToken = await AsyncStorage.getItem('refreshToken');
+            
+            if (!refreshToken) {
+              throw new Error('No refresh token available');
+            }
+            
             const refreshEndpoint = this.formatEndpoint('/auth/refresh-token');
             const response = await axios.post(`${API_BASE_URL || ''}${refreshEndpoint}`, {
               refreshToken
+            }, {
+              headers: DEFAULT_HEADERS
             });
             
             // Properly extract tokens from response structure
             // Backend returns { status: 'success', data: { token, refreshToken } }
-            const token = response.data.data.token;
-            const newRefreshToken = response.data.data.refreshToken;
+            const token = response.data?.data?.token || response.data?.token;
+            const newRefreshToken = response.data?.data?.refreshToken || response.data?.refreshToken;
+            
+            if (!token) {
+              throw new Error('No token received from refresh');
+            }
             
             // Save new tokens
             await AsyncStorage.multiSet([

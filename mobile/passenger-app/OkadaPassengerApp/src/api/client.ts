@@ -34,6 +34,21 @@ class ApiClient {
       timeout: REQUEST_TIMEOUT,
       headers: DEFAULT_HEADERS,
     });
+    
+    // Check if we need to add /mongo prefix to each request
+    const needsMongoPrefixing = API_BASE_URL ? !API_BASE_URL.endsWith('/mongo') : true;
+    
+    // Add request transformer to handle MongoDB prefixing
+    this.instance.interceptors.request.use(
+      (config) => {
+        // Add /mongo prefix if needed
+        if (needsMongoPrefixing && config.url && !config.url.startsWith('/mongo')) {
+          config.url = `/mongo${config.url}`;
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
 
     // Add request interceptor for authentication
     this.instance.interceptors.request.use(
