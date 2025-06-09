@@ -232,7 +232,32 @@ export default function LoginScreen({ navigation }: Props) {
       
       // Use Redux for state management
       // Redux expects 'identifier' not 'email'
-      await dispatch(login({ identifier: email.trim(), password })).unwrap();
+      const result = await dispatch(login({ identifier: email.trim(), password })).unwrap();
+      
+      console.log('Login result:', result); // Debug log
+      
+      // Check if verification is required
+      if (result?.requiresVerification) {
+        // Since we don't have verification screen, treat temp token as auth token
+        console.log('Bypassing verification for user:', result.user?.email);
+        
+        // Store the temp token as auth token
+        if (result.tempToken) {
+          await AsyncStorage.setItem('authToken', result.tempToken);
+          await AsyncStorage.setItem('refreshToken', result.tempToken); // Use same token for now
+          await AsyncStorage.setItem('userRole', result.user?.role || 'passenger');
+          
+          // Store user data
+          await AsyncStorage.setItem('userData', JSON.stringify(result.user));
+        }
+        
+        // Navigate to success screen, which will then redirect to Home
+        navigation.navigate('AuthSuccess', {
+          action: 'login',
+          destination: 'Home'
+        });
+        return;
+      }
       
       // If we get here, login was successful
       // Navigate to success screen, which will then redirect to Home

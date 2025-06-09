@@ -1,410 +1,236 @@
 /**
  * OTP Authentication Service
- * Provides OTP generation, verification, and password reset functionality
- * Uses environment variables for all configurable settings
+ * Handles OTP generation, storage, and verification using MongoDB
  */
-import mongoose from 'mongoose';
-import crypto from 'crypto';
-import jwt from 'jsonwebtoken';
-import dotenv from 'dotenv';
-import nodemailer from 'nodemailer';
+import OTPModel from '../models/OTP.js';
 import User from '../models/User.js';
-import OTP from '../models/OTP.js';
-import * as emailService from '../../services/email.service.js';
+import { sendEmail } from '../../services/email.service.js';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
-// Load environment variables
-dotenv.config();
-
-// OTP configuration from environment
-const OTP_LENGTH = parseInt(process.env.OTP_LENGTH || '6', 10);
-const OTP_EXPIRATION_MINUTES = parseInt(process.env.OTP_EXPIRATION_MINUTES || '10', 10);
-
-// Create nodemailer transporter with environment variables
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT, 10),
-  secure: process.env.SMTP_PORT === '465',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  }
-});
+const OTP_LENGTH = 6;
+const OTP_EXPIRY_MINUTES = 10;
+const RESEND_COOLDOWN_SECONDS = 60;
 
 /**
- * Generate a random numeric OTP
- * @param {number} length - Length of the OTP
- * @returns {string} - Generated OTP
+ * Generate a random OTP
  */
-function generateOTP(length = OTP_LENGTH) {
-  let otp = '';
-  for (let i = 0; i < length; i++) {
-    otp += Math.floor(Math.random() * 10);
-  }
-  return otp;
-}
+const generateOTP = () => {
+  return crypto.randomInt(100000, 999999).toString();
+};
 
 /**
  * Request OTP generation and send via email
- * @param {string} userId - The ID of the user
- * @param {string} email - The target email address
- * @returns {Promise<object>} - An object containing the expiration date
  */
-const requestOTP = async (userId, email) => {
+export const requestOTP = async (userId, email, type = 'verification') => {
   try {
-    if (!userId || !email) {
-      throw new Error('UserId and email are required');
-    }
-
-    // Generate new OTP
-    const otp = generateOTP();
+    console.log(`Generating OTP for user ${userId}, email: ${email}, type: ${type}`);
     
-    // Calculate expiration time
-    const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + OTP_EXPIRATION_MINUTES);
-
-    // Delete any existing OTPs for this user
-    await OTP.deleteMany({ userId });
-
-    // Save new OTP to database
-    const newOTP = new OTP({
-      userId,
-      identifier: email,
-      code: otp,
-      type: 'verification',
-      expiresAt: expiresAt,
-      provider: 'realtime'
+    // Check for existing OTP and cooldown
+    const existingOTP = await OTPModel.findOne({ 
+      userId, 
+      type,
+      createdAt: { $gte: new Date(Date.now() - RESEND_COOLDOWN_SECONDS * 1000) }
     });
-    await newOTP.save();
 
-    // Option 1: Use the email service if using existing infrastructure
-    await emailService.sendVerificationEmail(email, otp);
-    
-    /* Option 2: Direct nodemailer usage if email service not working
-    const mailOptions = {
-      from: `"${process.env.SMTP_FROM_NAME}" <${process.env.SMTP_FROM}>`,
-      to: email,
-      subject: 'Your OTP Code',
-      text: `Your OTP code is: ${otp}. It will expire at ${expiresAt.toLocaleTimeString()}.`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2>Email Verification</h2>
-          <p>Your verification code is:</p>
-          <div style="background-color: #f4f4f4; padding: 12px; font-size: 24px; font-weight: bold; text-align: center; letter-spacing: 5px; margin: 20px 0;">
-            ${otp}
-          </div>
-          <p>This code will expire in ${OTP_EXPIRATION_MINUTES} minutes.</p>
-          <p>If you did not request this, please ignore this email.</p>
-          <hr>
-          <p style="font-size: 12px; color: #666;">This is an automated message, please do not reply.</p>
-        </div>
-      `
-    };
-    
-    await transporter.sendMail(mailOptions);
-    */
-
-    return {
-      success: true,
-      message: 'OTP sent successfully to your email',
-      expiresAt: expiresAt
-    };
-  } catch (error) {
-    console.error('Error in OTP generation:', error);
-    throw {
-      success: false,
-      message: 'Failed to generate and send OTP',
-      error: error.message
-    };
-  }
-};
-
-/**
- * Verify a submitted OTP for a given user
- * @param {string} userId - The ID of the user
- * @param {string} submittedOTP - The OTP submitted by the user
- * @returns {Promise<object>} - An object with a token and user data upon success
- */
-const verifyOTP = async (userId, submittedOTP) => {
-  try {
-    if (!userId || !submittedOTP) {
-      throw new Error('UserId and OTP are required');
-    }
-
-    // Find the most recent OTP entry for this user
-    const otpRecord = await OTP.findOne({ userId, type: 'verification' }).sort({ createdAt: -1 });
-
-    // If no OTP record found
-    if (!otpRecord) {
-      throw { status: 400, message: 'No OTP has been requested for this user' };
-    }
-    
-    // Check if OTP is expired
-    if (new Date() > otpRecord.expiresAt) {
-      await OTP.deleteOne({ _id: otpRecord._id });
-      throw { status: 400, message: 'OTP has expired' };
-    }
-
-    // Check if OTP matches
-    if (submittedOTP === otpRecord.code) {
-      // OTP matches - implement all required actions
-      
-      // 1. Update user verification status
-      const user = await User.findByIdAndUpdate(
-        userId, 
-        { 
-          isEmailVerified: true,
-          emailVerifiedAt: new Date()
-        },
-        { new: true }
-      );
-      
-      if (!user) {
-        throw { status: 404, message: 'User not found' };
-      }
-      
-      // 2. Generate JWT authentication token
-      const token = jwt.sign(
-        { id: userId, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRY || '1h' }
-      );
-      
-      // 3. Delete the used OTP
-      await OTP.deleteOne({ _id: otpRecord._id });
-
-      return {
-        success: true,
-        message: 'OTP verified successfully',
-        token: token,
-        user: {
-          id: userId,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          isEmailVerified: true,
-          role: user.role
-        }
-      };
-    } else {
-      // OTP doesn't match
-      throw new Error('Invalid OTP');
-    }
-  } catch (error) {
-    console.error('Error in OTP verification:', error);
-    throw {
-      success: false,
-      message: error.message || 'Failed to verify OTP'
-    };
-  }
-};
-
-/**
- * Resend OTP (generates a new one if an active OTP isn't present)
- * @param {string} userId - The ID of the user
- * @param {string} email - The target email address
- * @returns {Promise<object>}
- */
-const resendOTP = async (userId, email) => {
-  try {
-    if (!userId || !email) {
-      throw new Error('UserId and email are required');
-    }
-
-    // Check if previous OTP exists and when it was sent
-    const existingOTP = await OTP.findOne({ userId, type: 'verification' }).sort({ createdAt: -1 });
-    
     if (existingOTP) {
-      // Check if OTP is still valid
-      if (new Date() < existingOTP.expiresAt) {
-        // Calculate time since last OTP in seconds
-        const timeElapsed = (Date.now() - existingOTP.createdAt.getTime()) / 1000;
-        
-        // If less than 30 seconds since last OTP, prevent resend to avoid abuse
-        if (timeElapsed < 30) {
-          throw new Error(`Please wait ${Math.ceil(30 - timeElapsed)} seconds before requesting another OTP`);
-        }
-      }
-      
-      // Delete the existing OTP
-      await OTP.deleteOne({ _id: existingOTP._id });
-    }
-
-    // Generate and send new OTP (reusing the request-otp logic)
-    return await requestOTP(userId, email);
-  } catch (error) {
-    console.error('Error in OTP resend:', error);
-    throw {
-      success: false,
-      message: error.message || 'Failed to resend OTP'
-    };
-  }
-};
-
-/**
- * Send an OTP for password reset
- * @param {string} userId - The ID of the user
- * @param {string} email - The target email address
- * @returns {Promise<object>}
- */
-const sendPasswordResetOTP = async (userId, email) => {
-  try {
-    if (!userId || !email) {
-      throw new Error('UserId and email are required');
+      const waitTime = Math.ceil((RESEND_COOLDOWN_SECONDS - (Date.now() - existingOTP.createdAt) / 1000));
+      throw {
+        status: 429,
+        message: `Please wait ${waitTime} seconds before requesting a new OTP`
+      };
     }
 
     // Generate new OTP
     const otp = generateOTP();
-    
-    // Calculate expiration time
-    const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + OTP_EXPIRATION_MINUTES);
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
-    // Delete any existing password reset OTPs for this user
-    await OTP.deleteMany({ userId, type: 'passwordReset' });
-
-    // Save new OTP to database
-    const newOTP = new OTP({
+    // Save OTP to database
+    await OTPModel.create({
       userId,
-      identifier: email,
-      code: otp,
-      type: 'passwordReset',
-      expiresAt: expiresAt,
-      provider: 'realtime'
+      otp,
+      type,
+      expiresAt,
+      attempts: 0
     });
-    await newOTP.save();
 
-    // Option 1: Use email service
-    await emailService.sendPasswordResetEmail(email, otp);
+    // Send OTP via email
+    const emailSubject = type === 'password_reset' 
+      ? 'Password Reset OTP - Okada Transportation'
+      : 'Verification OTP - Okada Transportation';
     
-    /* Option 2: Direct nodemailer usage
-    const mailOptions = {
-      from: `"${process.env.SMTP_FROM_NAME}" <${process.env.SMTP_FROM}>`,
-      to: email,
-      subject: 'Password Reset OTP',
-      text: `Your password reset OTP is: ${otp}. It will expire at ${expiresAt.toLocaleTimeString()}.`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2>Password Reset</h2>
-          <p>Your password reset code is:</p>
-          <div style="background-color: #f4f4f4; padding: 12px; font-size: 24px; font-weight: bold; text-align: center; letter-spacing: 5px; margin: 20px 0;">
-            ${otp}
-          </div>
-          <p>This code will expire in ${OTP_EXPIRATION_MINUTES} minutes.</p>
-          <p>If you did not request this, please contact our support team immediately.</p>
-          <hr>
-          <p style="font-size: 12px; color: #666;">This is an automated message, please do not reply.</p>
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">Your One-Time Password (OTP)</h2>
+        <p>Hello,</p>
+        <p>Your OTP code is:</p>
+        <div style="background-color: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+          ${otp}
         </div>
-      `
-    };
-    
-    await transporter.sendMail(mailOptions);
-    */
+        <p>This code will expire in ${OTP_EXPIRY_MINUTES} minutes.</p>
+        <p>If you didn't request this code, please ignore this email.</p>
+        <hr style="margin: 30px 0;">
+        <p style="color: #666; font-size: 12px;">
+          This is an automated message from Okada Transportation. Please do not reply to this email.
+        </p>
+      </div>
+    `;
+
+    await sendEmail({
+      to: email,
+      subject: emailSubject,
+      html: emailHtml
+    });
+
+    console.log(`OTP sent successfully to ${email}`);
 
     return {
       success: true,
-      message: 'Password reset OTP sent successfully to your email',
-      expiresAt: expiresAt
+      expiresAt
     };
   } catch (error) {
-    console.error('Error in password reset OTP generation:', error);
-    throw {
-      success: false,
-      message: 'Failed to generate and send password reset OTP',
-      error: error.message
-    };
+    console.error('Error in requestOTP:', error);
+    throw error;
   }
 };
 
 /**
- * Verify the password reset OTP
- * @param {string} userId - The ID of the user
- * @param {string} submittedOTP - The OTP submitted by the user
- * @returns {Promise<object>}
+ * Verify OTP
  */
-const verifyPasswordResetOTP = async (userId, submittedOTP) => {
+export const verifyOTP = async (userId, submittedOTP, type = 'verification') => {
   try {
-    if (!userId || !submittedOTP) {
-      throw new Error('UserId and OTP are required');
-    }
+    // Find the OTP record
+    const otpRecord = await OTPModel.findOne({
+      userId,
+      type,
+      verified: false,
+      expiresAt: { $gt: new Date() }
+    }).sort({ createdAt: -1 });
 
-    // Find the most recent password reset OTP entry for this user
-    const otpRecord = await OTP.findOne({ userId, type: 'passwordReset' }).sort({ createdAt: -1 });
-
-    // If no OTP record found
     if (!otpRecord) {
-      throw { status: 400, message: 'No password reset OTP request found' };
-    }
-    
-    // Check if OTP is expired
-    if (new Date() > otpRecord.expiresAt) {
-      await OTP.deleteOne({ _id: otpRecord._id });
-      throw { status: 400, message: 'Password reset OTP has expired' };
+      throw {
+        status: 400,
+        message: 'Invalid or expired OTP'
+      };
     }
 
     // Check if OTP matches
-    if (submittedOTP === otpRecord.code) {
-      // OTP matches - don't delete it yet, it will be deleted after password reset
-      return {
-        success: true,
-        message: 'Password reset OTP verified successfully',
-        userId: userId
+    if (otpRecord.otp !== submittedOTP) {
+      // Increment attempts
+      otpRecord.attempts += 1;
+      
+      // Lock after 3 attempts
+      if (otpRecord.attempts >= 3) {
+        otpRecord.verified = true; // Mark as used to prevent further attempts
+        await otpRecord.save();
+        
+        throw {
+          status: 400,
+          message: 'Too many incorrect attempts. Please request a new OTP.'
+        };
+      }
+      
+      await otpRecord.save();
+      
+      throw {
+        status: 400,
+        message: `Incorrect OTP. ${3 - otpRecord.attempts} attempts remaining.`
       };
-    } else {
-      // OTP doesn't match
-      throw new Error('Invalid password reset OTP');
     }
-  } catch (error) {
-    console.error('Error in password reset OTP verification:', error);
-    throw {
-      success: false,
-      message: error.message || 'Failed to verify password reset OTP'
+
+    // Mark OTP as verified
+    otpRecord.verified = true;
+    await otpRecord.save();
+
+    // If this is for verification, update user verification status
+    if (type === 'verification') {
+      const user = await User.findById(userId);
+      if (user) {
+        user.isVerified = true;
+        user.verifiedAt = new Date();
+        await user.save();
+
+        // Generate auth token
+        const token = jwt.sign(
+          { 
+            id: user._id, 
+            email: user.email,
+            role: user.role || 'passenger'
+          },
+          process.env.JWT_SECRET || 'your-secret-key',
+          { expiresIn: '7d' }
+        );
+
+        return {
+          success: true,
+          token,
+          user: {
+            id: user._id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            phoneNumber: user.phoneNumber,
+            role: user.role
+          }
+        };
+      }
+    }
+
+    return {
+      success: true,
+      message: 'OTP verified successfully'
     };
+  } catch (error) {
+    console.error('Error in verifyOTP:', error);
+    throw error;
   }
 };
 
 /**
- * Reset the user's password
- * @param {string} userId - The ID of the user
- * @param {string} newPassword - The new password to be set
- * @returns {Promise<void>}
+ * Resend OTP
  */
-const resetPassword = async (userId, newPassword) => {
-  try {
-    if (!userId || !newPassword) {
-      throw { status: 400, message: 'UserId and new password are required' };
-    }
+export const resendOTP = async (userId, email, type = 'verification') => {
+  // This uses the same logic as requestOTP
+  return requestOTP(userId, email, type);
+};
 
-    // Update user password
+/**
+ * Send password reset OTP
+ */
+export const sendPasswordResetOTP = async (userId, email) => {
+  return requestOTP(userId, email, 'password_reset');
+};
+
+/**
+ * Verify password reset OTP
+ */
+export const verifyPasswordResetOTP = async (userId, otp) => {
+  return verifyOTP(userId, otp, 'password_reset');
+};
+
+/**
+ * Reset password after OTP verification
+ */
+export const resetPassword = async (userId, newPassword) => {
+  try {
     const user = await User.findById(userId);
     if (!user) {
-      throw { status: 404, message: 'User not found' };
+      throw {
+        status: 404,
+        message: 'User not found'
+      };
     }
 
-    // Set the new password (will be hashed by the User model pre-save hook)
+    // The User model should handle password hashing in pre-save middleware
     user.password = newPassword;
     await user.save();
 
-    // Delete all password reset OTPs for this user
-    await OTP.deleteMany({ userId, type: 'passwordReset' });
-
     return {
       success: true,
-      message: 'Password reset successful'
+      message: 'Password reset successfully'
     };
   } catch (error) {
-    console.error('Error in password reset:', error);
-    throw {
-      success: false,
-      message: error.message || 'Failed to reset password'
-    };
+    console.error('Error in resetPassword:', error);
+    throw error;
   }
-};
-
-export {
-  requestOTP,
-  verifyOTP,
-  resendOTP,
-  sendPasswordResetOTP,
-  verifyPasswordResetOTP,
-  resetPassword
 };

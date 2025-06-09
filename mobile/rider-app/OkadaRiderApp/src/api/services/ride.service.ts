@@ -87,17 +87,24 @@ class RideService {
   private isSocketConnected: boolean = false;
   
   constructor() {
-    // Initialize socket connection when service is created
-    this.initializeSocketConnection();
+    // Socket connection will be initialized manually after authentication
+    console.log('RideService created - socket connection pending authentication');
   }
   
   /**
    * Initialize socket connection and set up event listeners
+   * This should be called after the user has authenticated
    */
-  private async initializeSocketConnection(): Promise<void> {
+  async initializeSocketConnection(): Promise<void> {
+    // Skip if already connected
+    if (this.isSocketConnected) {
+      console.log('Socket already connected, skipping initialization');
+      return;
+    }
+    
     try {
-      // Connect to socket server
-      await socketService.connect();
+      // Initialize socket (this will check for auth token internally)
+      await socketService.initialize();
       this.isSocketConnected = true;
       
       // Set up event listeners for ride-related events
@@ -115,7 +122,7 @@ class RideService {
    */
   private setupSocketListeners(): void {
     // Listen for new ride requests
-    socketService.on('ride:new_request', (data) => {
+    socketService.on('ride:request', (data: any) => {
       console.log('New ride request received:', data);
       
       // Add to ride requests if not already present
@@ -128,7 +135,7 @@ class RideService {
     });
     
     // Listen for ride taken by another rider
-    socketService.on('ride:taken', (data) => {
+    socketService.on('ride:taken', (data: any) => {
       console.log('Ride taken by another rider:', data);
       
       // Remove from ride requests
@@ -139,7 +146,7 @@ class RideService {
     });
     
     // Listen for ride acceptance confirmation
-    socketService.on('ride:acceptance_confirmed', (data) => {
+    socketService.on('ride:accepted', (data: any) => {
       console.log('Ride acceptance confirmed:', data);
       
       // Fetch active ride to update UI
@@ -150,7 +157,7 @@ class RideService {
     });
     
     // Listen for ride status update confirmation
-    socketService.on('ride:status_update_confirmed', (data) => {
+    socketService.on('ride:status_updated', (data: any) => {
       console.log('Ride status update confirmed:', data);
       
       // Update active ride status if it matches
@@ -163,7 +170,7 @@ class RideService {
     });
     
     // Listen for ride cancellation
-    socketService.on('ride:cancelled', (data) => {
+    socketService.on('ride:cancelled', (data: any) => {
       console.log('Ride cancelled:', data);
       
       // If it's the active ride, clear it
@@ -188,9 +195,9 @@ class RideService {
       // Ensure we handle undefined case
       this.activeRide = response.data || null;
       
-      // If active ride exists, join the ride-specific room
-      if (this.activeRide) {
-        socketService.joinRideRoom(this.activeRide.id);
+      // If active ride exists, emit a join event for the ride
+      if (this.activeRide && this.isSocketConnected) {
+        socketService.emit('ride:join', { rideId: this.activeRide.id });
       }
     } catch (error) {
       console.error('Error fetching active ride:', error);
@@ -351,7 +358,7 @@ class RideService {
     
     // Also update via socket for real-time status change
     if (this.isSocketConnected) {
-      socketService.updateAvailability(status as 'online' | 'offline' | 'busy');
+      socketService.setAvailability(isAvailable);
     }
     
     return response;
@@ -396,7 +403,9 @@ class RideService {
       this.notifyRideStatusListeners();
       
       // Join ride-specific room
-      socketService.joinRideRoom(rideId);
+      if (this.isSocketConnected) {
+        socketService.emit('ride:join', { rideId });
+      }
     }
     
     return response;
@@ -439,14 +448,13 @@ class RideService {
                           statusUpdate.status === 'started' ? 'in_progress' :
                           statusUpdate.status === 'completed' ? 'completed' : 'in_progress';
       
-      socketService.updateRideStatus(
-        rideId, 
-        socketStatus,
-        {
-          actualFare: statusUpdate.actualFare,
-          actualDistance: statusUpdate.actualDistance
-        }
-      );
+      socketService.emit('ride:status_update', {
+        rideId,
+        status: socketStatus,
+        actualFare: statusUpdate.actualFare,
+        actualDistance: statusUpdate.actualDistance,
+        timestamp: new Date().toISOString()
+      });
     }
     
     // Update active ride if it matches
@@ -456,7 +464,9 @@ class RideService {
       
       // If ride is completed, leave the ride room
       if (statusUpdate.status === 'completed') {
-        socketService.leaveRideRoom(rideId);
+        if (this.isSocketConnected) {
+          socketService.emit('ride:leave', { rideId });
+        }
         
         // Clear active ride after a delay to allow UI to show completion
         setTimeout(() => {

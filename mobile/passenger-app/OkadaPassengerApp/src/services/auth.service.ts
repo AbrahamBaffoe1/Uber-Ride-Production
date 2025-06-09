@@ -75,11 +75,17 @@ class AuthService {
       
       // Check if verification is required
       if (response?.requiresVerification || response?.data?.requiresVerification) {
+        // Store temporary token for verification flow
+        const tempToken = response.data?.tempToken || response.tempToken;
+        if (tempToken) {
+          await AsyncStorage.setItem('tempToken', tempToken);
+        }
+        
         return {
           requiresVerification: true,
-          userId: response.userId || response.data?.userId,
-          tempToken: response.tempToken || response.data?.tempToken,
-          user: response.user || response.data?.user
+          userId: response.data?.userId || response.userId,
+          tempToken: tempToken,
+          user: response.data?.user || response.user
         };
       }
       

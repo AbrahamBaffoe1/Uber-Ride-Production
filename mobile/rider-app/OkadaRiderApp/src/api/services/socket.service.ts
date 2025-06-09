@@ -27,9 +27,13 @@ class SocketService {
     try {
       const token = await AsyncStorage.getItem('auth_token');
       
+      // Don't connect if no token is available (user not authenticated)
       if (!token) {
-        throw new Error('Authentication token not found');
+        console.log('Socket initialization skipped: No authentication token found');
+        return;
       }
+
+      console.log('Initializing rider socket connection to:', SOCKET_URL);
       
       this.socket = io(SOCKET_URL, {
         transports: ['websocket'],
@@ -50,8 +54,9 @@ class SocketService {
       this.isInitialized = true;
       console.log('Socket initialized successfully');
     } catch (error) {
-      console.error('Failed to initialize socket:', error);
-      throw error;
+      console.error('Failed to initialize socket connection:', error);
+      // Don't throw error - just log it
+      // This prevents app crashes when backend is not running
     }
   }
   
@@ -355,6 +360,20 @@ class SocketService {
       reason,
       timestamp: new Date().toISOString()
     });
+  }
+  
+  /**
+   * Emit a custom event
+   * @param event Event name
+   * @param data Event data
+   */
+  emit(event: string, data: any): void {
+    if (!this.socket || !this.socket.connected) {
+      console.warn(`Cannot emit ${event}: Socket not connected`);
+      return;
+    }
+    
+    this.socket.emit(event, data);
   }
   
   /**
