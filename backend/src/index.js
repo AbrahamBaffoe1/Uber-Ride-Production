@@ -23,6 +23,7 @@ import { connectToRiderDB, connectToPassengerDB } from './config/mongodb.js';
 // Import routes with app-specific and shared routes
 import setupAppRoutes from './mongodb/routes/index.js';
 import { initializeAdminUser } from './scripts/initialize-admin-user.js';
+import { registerModels } from './mongodb/models/registerModels.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -184,6 +185,9 @@ mongoose.set('autoIndex', process.env.NODE_ENV !== 'production'); // Don't auto-
         // Also initialize the direct MongoDB client connection
         await connectToMongo();
         console.log("Direct MongoDB client connection established");
+        
+        // Register all models on the connections
+        registerModels(riderConnection, passengerConnection);
         
         // Skip admin user initialization for now to avoid blocking server startup
         console.log('Skipping admin user initialization to ensure server starts properly');

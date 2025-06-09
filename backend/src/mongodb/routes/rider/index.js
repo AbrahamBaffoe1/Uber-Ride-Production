@@ -17,20 +17,10 @@ export default function(riderConnection) {
   // Import role middleware from parameter to ensure it's available
   const checkRole = hasAnyRole;
 
-  // Register Rider-specific models with this connection using dynamic imports
-  // This ensures models use the rider database
-  import('../../models/User.js').then(UserModule => {
-    riderConnection.model('User', UserModule.default.schema);
-  });
-  import('../../models/Ride.js').then(RideModule => {
-    riderConnection.model('Ride', RideModule.default.schema);
-    // For Earnings, replace with actual schema when created
-    riderConnection.model('Earnings', RideModule.default.schema);
-  });
-  import('../../models/RiderLocation.js').then(RiderLocationModule => {
-    riderConnection.model('RiderLocation', RiderLocationModule.default.schema);
-  });
-  // Add other rider-specific models as needed
+  // Models are already registered in registerModels.js, no need to register them again
+  const User = riderConnection.model('User');
+  const Ride = riderConnection.model('Ride');
+  const RiderLocation = riderConnection.model('RiderLocation');
 
   // Define rider-specific routes
 

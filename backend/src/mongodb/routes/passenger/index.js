@@ -14,17 +14,10 @@ import { hasAnyRole } from '../../middlewares/role.middleware.js';
 export default function(passengerConnection) {
   const router = express.Router();
 
-  // Register Passenger-specific models with this connection
-  // This ensures models use the passenger database
-  import('../../models/User.js').then(UserModule => {
-    passengerConnection.model('User', UserModule.default.schema);
-  });
-  import('../../models/Ride.js').then(RideModule => {
-    passengerConnection.model('Ride', RideModule.default.schema);
-    // For SavedLocation, replace with actual schema when available
-    passengerConnection.model('SavedLocation', RideModule.default.schema);
-  });
-  // Add other passenger-specific models as needed
+  // Models are already registered in registerModels.js, no need to register them again
+  const User = passengerConnection.model('User');
+  const Ride = passengerConnection.model('Ride');
+  const SavedLocation = passengerConnection.model('SavedLocation');
 
   // Define passenger-specific routes
 
