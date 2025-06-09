@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Provider } from 'react-redux';
 import { store } from './src/redux/store';
 import { LogBox, Platform } from 'react-native';
+import './src/utils/uuidPolyfill'; // Import the UUID polyfill
 import AppNavigator from './src/navigation/AppNavigator';
 
 // Import native exception wrapper without causing type errors

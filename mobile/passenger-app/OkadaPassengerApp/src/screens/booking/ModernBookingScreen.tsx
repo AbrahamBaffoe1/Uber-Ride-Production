@@ -135,30 +135,52 @@ export default function ModernBookingScreen({ navigation, route }: Props) {
     setIsBooking(true);
     
     try {
-      // Create ride request
-      const rideData = {
+      // Create ride request object according to the RideRequest interface
+      const rideRequest = {
         pickupLocation: {
           latitude: currentLocation.latitude,
           longitude: currentLocation.longitude,
           address: currentLocation.address || 'Current location'
         },
-        destination: {
+        dropoffLocation: {
           latitude: destination.coordinates.latitude,
           longitude: destination.coordinates.longitude,
           address: destination.address
         },
+        rideType: 'standard', // Use 'standard' as default
         paymentMethod: selectedPayment,
-        estimatedFare,
-        promoCode: promoCode || undefined
+        notes: promoCode ? `Promo code: ${promoCode}` : undefined
       };
 
-      // Request ride (mock for now)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Navigate to tracking screen
-      navigation.navigate('RideTracking', {
-        rideId: 'mock-ride-id'
-      });
+      try {
+        // Try to use the real API first
+        const activeRide = await rideService.requestRide(rideRequest);
+        
+        // Navigate to tracking screen with the actual ride ID
+        navigation.navigate('RideTracking', {
+          rideId: activeRide.id
+        });
+      } catch (apiError) {
+        console.log('API error, using mock data as fallback:', apiError);
+        
+        // Fallback to mock data if the API fails
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Create a simulated successful response
+        const mockRideId = 'mock-ride-' + Math.floor(Math.random() * 1000);
+        
+        // Show a toast indicating we're using mock data
+        Alert.alert(
+          'Demo Mode',
+          'Using simulated ride data for demonstration purposes.',
+          [{ text: 'Continue', onPress: () => {
+            // Navigate to tracking screen with mock ride ID
+            navigation.navigate('RideTracking', {
+              rideId: mockRideId
+            });
+          }}]
+        );
+      }
     } catch (error) {
       console.error('Booking error:', error);
       Alert.alert('Error', 'Failed to book ride. Please try again.');

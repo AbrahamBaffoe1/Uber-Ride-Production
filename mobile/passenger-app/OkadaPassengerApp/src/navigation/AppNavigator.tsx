@@ -82,7 +82,7 @@ export default function AppNavigator() {
         <Stack.Screen name="AuthError" component={AuthErrorScreen} />
         
         {/* Main App Screens - Using Modern UI */}
-        <Stack.Screen name="Home" component={HomeScreenUber} />
+        <Stack.Screen name="Home" component={ModernHomeScreen} />
         <Stack.Screen name="Booking" component={ModernBookingScreen} />
         
         {/* Other Screens */}
