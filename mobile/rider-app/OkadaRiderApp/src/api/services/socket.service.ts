@@ -4,6 +4,29 @@ import { SOCKET_URL } from '../config';
 import { Platform } from 'react-native';
 
 /**
+ * Socket events that can be listened for
+ */
+export type SocketEvent =
+  // Ride events
+  | 'ride:new_request'
+  | 'ride:request'
+  | 'ride:acceptance_confirmed'
+  | 'ride:status_update_confirmed'
+  | 'ride:cancelled'
+  | 'ride:taken'
+  // Location events
+  | 'location:updated'
+  // Availability events
+  | 'availability:updated'
+  // Error events
+  | 'error'
+  | 'auth_error'
+  | 'reconnect_failed'
+  // Connection events
+  | 'connect'
+  | 'disconnect';
+
+/**
  * Socket.IO Service for real-time communication
  * Handles ride requests, location updates, and status changes
  */
@@ -14,6 +37,9 @@ class SocketService {
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private reconnectInterval: number = 5000; // 5 seconds
+  private currentStatus: 'online' | 'busy' | 'offline' = 'offline';
+  private locationUpdateTimer: any = null;
+  private locationUpdateInterval: number = 15000; // 15 seconds
   
   /**
    * Initialize the socket connection
@@ -35,6 +61,9 @@ class SocketService {
 
       console.log('Initializing rider socket connection to:', SOCKET_URL);
       
+      // Generate a simple device identifier if needed
+      const deviceId = `rider-${Math.random().toString(36).substring(2, 15)}`;
+      
       this.socket = io(SOCKET_URL, {
         transports: ['websocket'],
         autoConnect: true,
@@ -45,8 +74,11 @@ class SocketService {
           token
         },
         query: {
+          device: deviceId,
           platform: Platform.OS,
-          role: 'rider' // Identify as rider
+          appVersion: '1.0.0', // Hardcoded version
+          role: 'rider', // Identify as rider
+          os: Platform.OS
         }
       });
       
@@ -73,6 +105,13 @@ class SocketService {
       
       // Re-authenticate on reconnect
       this.authenticate();
+      
+      // Start automatic location updates if online
+      if (this.currentStatus === 'online') {
+        this.startLocationUpdates();
+      }
+      
+      this.triggerListeners('connect', { connected: true });
     });
     
     this.socket.on('connect_error', (error) => {
@@ -91,8 +130,14 @@ class SocketService {
     });
     
     // Rider-specific events
-    this.socket.on('ride:request', (data) => {
+    this.socket.on('ride:new_request', (data) => {
       console.log('New ride request received:', data);
+      this.triggerListeners('ride:new_request', data);
+    });
+    
+    // Legacy event name
+    this.socket.on('ride:request', (data) => {
+      console.log('New ride request received (legacy event):', data);
       this.triggerListeners('ride:request', data);
     });
     
@@ -101,9 +146,34 @@ class SocketService {
       this.triggerListeners('ride:cancelled', data);
     });
     
-    this.socket.on('ride:status_updated', (data) => {
-      console.log('Ride status updated:', data);
-      this.triggerListeners('ride:status_updated', data);
+    this.socket.on('ride:status_update_confirmed', (data) => {
+      console.log('Ride status update confirmed:', data);
+      this.triggerListeners('ride:status_update_confirmed', data);
+    });
+    
+    this.socket.on('ride:acceptance_confirmed', (data) => {
+      console.log('Ride acceptance confirmed:', data);
+      this.triggerListeners('ride:acceptance_confirmed', data);
+      
+      // Update status to busy when ride is accepted
+      this.currentStatus = 'busy';
+    });
+    
+    this.socket.on('ride:taken', (data) => {
+      console.log('Ride taken by another rider:', data);
+      this.triggerListeners('ride:taken', data);
+    });
+    
+    // Location events
+    this.socket.on('location:updated', (data) => {
+      console.log('Location update confirmed');
+      this.triggerListeners('location:updated', data);
+    });
+    
+    // Availability events
+    this.socket.on('availability:updated', (data) => {
+      console.log('Availability update confirmed:', data);
+      this.triggerListeners('availability:updated', data);
     });
     
     // Error handling
@@ -215,6 +285,43 @@ class SocketService {
   }
   
   /**
+   * Start automatic location updates
+   * @param interval Update interval in milliseconds
+   */
+  startLocationUpdates(interval: number = this.locationUpdateInterval): void {
+    // Clear existing timer if any
+    if (this.locationUpdateTimer) {
+      clearInterval(this.locationUpdateTimer);
+    }
+    
+    // Set up new timer
+    this.locationUpdateTimer = setInterval(() => {
+      // Get location from app's location service
+      // This is a placeholder - you should implement actual location fetching
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude, heading, speed, accuracy } = position.coords;
+          this.updateLocation(latitude, longitude, heading || 0, speed || 0, accuracy);
+        },
+        (error) => {
+          console.error('Error getting current position:', error);
+        },
+        { enableHighAccuracy: true }
+      );
+    }, interval);
+  }
+  
+  /**
+   * Stop automatic location updates
+   */
+  stopLocationUpdates(): void {
+    if (this.locationUpdateTimer) {
+      clearInterval(this.locationUpdateTimer);
+      this.locationUpdateTimer = null;
+    }
+  }
+  
+  /**
    * Update rider's location
    * @param latitude Latitude coordinate
    * @param longitude Longitude coordinate
@@ -236,13 +343,13 @@ class SocketService {
     
     this.socket.emit('location:update', {
       location: {
-        lat: latitude,
-        lng: longitude,
+        latitude,
+        longitude,
         heading,
         speed,
         accuracy
       },
-      timestamp: new Date().toISOString()
+      status: this.currentStatus
     });
   }
   
@@ -256,10 +363,19 @@ class SocketService {
       return;
     }
     
+    const newStatus = isAvailable ? 'online' : 'offline';
+    this.currentStatus = newStatus;
+    
     this.socket.emit('availability:update', {
-      status: isAvailable ? 'online' : 'offline',
-      timestamp: new Date().toISOString()
+      status: newStatus
     });
+    
+    // Start or stop location updates based on status
+    if (isAvailable) {
+      this.startLocationUpdates();
+    } else {
+      this.stopLocationUpdates();
+    }
   }
   
   /**
@@ -272,9 +388,11 @@ class SocketService {
       return;
     }
     
+    // Update status to busy
+    this.currentStatus = 'busy';
+    
     this.socket.emit('ride:accept', {
-      rideId,
-      timestamp: new Date().toISOString()
+      rideId
     });
   }
   
@@ -297,19 +415,40 @@ class SocketService {
   }
   
   /**
-   * Mark rider as arrived at pickup location
+   * Update ride status
    * @param rideId Ride ID
+   * @param status New status ('arrived', 'started', 'completed')
+   * @param additionalData Additional data to send with status update
    */
-  arrivedAtPickup(rideId: string): void {
+  updateRideStatus(
+    rideId: string, 
+    status: 'arrived' | 'started' | 'completed',
+    additionalData: any = {}
+  ): void {
     if (!this.socket || !this.socket.connected) {
       console.warn('Cannot update ride status: Socket not connected');
       return;
     }
     
-    this.socket.emit('ride:arrived', {
+    // Update internal status tracker
+    if (status === 'completed') {
+      // When ride is completed, rider becomes available again
+      this.currentStatus = 'online';
+    }
+    
+    this.socket.emit('ride:update_status', {
       rideId,
-      timestamp: new Date().toISOString()
+      status,
+      ...additionalData
     });
+  }
+  
+  /**
+   * Mark rider as arrived at pickup location
+   * @param rideId Ride ID
+   */
+  arrivedAtPickup(rideId: string): void {
+    this.updateRideStatus(rideId, 'arrived');
   }
   
   /**
@@ -317,31 +456,26 @@ class SocketService {
    * @param rideId Ride ID to start
    */
   startRide(rideId: string): void {
-    if (!this.socket || !this.socket.connected) {
-      console.warn('Cannot start ride: Socket not connected');
-      return;
-    }
-    
-    this.socket.emit('ride:start', {
-      rideId,
-      timestamp: new Date().toISOString()
-    });
+    this.updateRideStatus(rideId, 'started');
   }
   
   /**
    * Complete a ride
    * @param rideId Ride ID to complete
+   * @param actualDistance Actual distance traveled in km (optional)
+   * @param actualDuration Actual duration in minutes (optional)
    */
-  completeRide(rideId: string): void {
-    if (!this.socket || !this.socket.connected) {
-      console.warn('Cannot complete ride: Socket not connected');
-      return;
-    }
+  completeRide(
+    rideId: string, 
+    actualDistance?: number, 
+    actualDuration?: number
+  ): void {
+    const additionalData: any = {};
     
-    this.socket.emit('ride:complete', {
-      rideId,
-      timestamp: new Date().toISOString()
-    });
+    if (actualDistance) additionalData.actualDistance = actualDistance;
+    if (actualDuration) additionalData.actualDuration = actualDuration;
+    
+    this.updateRideStatus(rideId, 'completed', additionalData);
   }
   
   /**
@@ -377,9 +511,27 @@ class SocketService {
   }
   
   /**
+   * Get current status
+   * @returns Current rider status
+   */
+  getCurrentStatus(): 'online' | 'busy' | 'offline' {
+    return this.currentStatus;
+  }
+  
+  /**
+   * Check if connected
+   * @returns Whether socket is connected
+   */
+  isConnected(): boolean {
+    return !!this.socket && this.socket.connected;
+  }
+  
+  /**
    * Disconnect socket
    */
   disconnect(): void {
+    this.stopLocationUpdates();
+    
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;

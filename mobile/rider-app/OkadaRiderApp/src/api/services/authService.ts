@@ -51,15 +51,15 @@ class AuthService {
   private currentUser: User | null = null;
   private authStateListeners: ((user: User | null) => void)[] = [];
 
-  // Login with email/password - Using MongoDB backend
-  async login(email: string, password: string): Promise<User> {
+  // Login with email/phone and password - Using MongoDB backend
+  async login(identifier: string, password: string): Promise<User> {
     try {
       console.log(`Attempting login at: ${API_BASE_URL}/auth/login`);
-      console.log('Login payload:', { email, password: '******' });
+      console.log('Login payload:', { identifier, password: '******' });
       
-      // Ensure email is not undefined or empty
-      if (!email) {
-        throw new Error('Email is required for login');
+      // Ensure identifier is not undefined or empty
+      if (!identifier) {
+        throw new Error('Email or phone number is required for login');
       }
       
       // Ensure password is not undefined or empty
@@ -67,8 +67,19 @@ class AuthService {
         throw new Error('Password is required for login');
       }
       
+      // Determine if identifier is email or phone
+      const isEmail = identifier.includes('@');
+      
+      // Log login attempt type for debugging
+      console.log('Login attempt with:', {
+        email: isEmail ? identifier : 'N/A',
+        loginMethod: isEmail ? 'email' : 'phone',
+        passwordLength: password.length,
+        phone: !isEmail ? identifier : 'N/A'
+      });
+      
       const loginPayload = {
-        email: email,
+        [isEmail ? 'email' : 'phoneNumber']: identifier,
         password: password
       };
       
@@ -87,19 +98,23 @@ class AuthService {
         throw new Error(apiResponse?.message || 'Authentication failed');
       }
       
-      // Map backend user format to our app's User format
+      // Map backend user format to our app's User format and enforce 'rider' role
       const user: User = {
         _id: apiResponse.data.user.id,
         email: apiResponse.data.user.email,
         firstName: apiResponse.data.user.firstName,
         lastName: apiResponse.data.user.lastName,
         phoneNumber: apiResponse.data.user.phoneNumber,
-        role: apiResponse.data.user.role,
+        // Always use 'rider' role for this app regardless of what the API returns
+        role: 'rider',
         profilePicture: apiResponse.data.user.profilePicture,
         country: apiResponse.data.user.country,
         isPhoneVerified: apiResponse.data.user.isPhoneVerified,
         isEmailVerified: apiResponse.data.user.isEmailVerified
       };
+      
+      // Log user role for debugging
+      console.log('User is logged in as:', user.role);
       
       console.log('User authenticated successfully with MongoDB');
       
@@ -182,17 +197,21 @@ class AuthService {
       
       console.log('User registered successfully with MongoDB backend');
       
-      // Map backend user format to our app's User format
+      // Map backend user format to our app's User format and enforce 'rider' role
       const user: User = {
         _id: response.data.user.id,
         email: response.data.user.email,
         firstName: response.data.user.firstName,
         lastName: response.data.user.lastName,
         phoneNumber: response.data.user.phoneNumber,
-        role: response.data.user.role,
+        // Always set role to 'rider' for this app
+        role: 'rider',
         // Add additional fields
         country: response.data.user.country
       };
+      
+      // Log user role for debugging
+      console.log('User is registered as:', user.role);
       
       // Store tokens - MongoDB auth should return both tokens
       const tokensToStore: [string, string][] = [
@@ -276,14 +295,15 @@ class AuthService {
         throw new Error('Failed to get current user');
       }
       
-      // Map backend user format to our app's User format
+      // Map backend user format to our app's User format and enforce 'rider' role
       const user: User = {
         _id: response.data.user.id,
         email: response.data.user.email,
         firstName: response.data.user.firstName,
         lastName: response.data.user.lastName,
         phoneNumber: response.data.user.phoneNumber,
-        role: response.data.user.role,
+        // Always set role to 'rider' for this app
+        role: 'rider',
         profilePicture: response.data.user.profilePicture,
         isEmailVerified: response.data.user.isEmailVerified,
         isPhoneVerified: response.data.user.isPhoneVerified,

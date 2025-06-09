@@ -156,25 +156,17 @@ const LoginScreen: React.FC = () => {
         passwordLength: password.length
       });
       
-      // Use real authentication with MongoDB
-      if (loginMethod === 'email') {
-        console.log('Calling authService.login with email:', email);
-        const trimmedEmail = email.trim();
-        const trimmedPassword = password.trim();
-        
-        console.log('Trimmed credentials:', {
-          email: trimmedEmail,
-          passwordLength: trimmedPassword.length
-        });
-        
-        await authService.login(trimmedEmail, trimmedPassword);
-      } else {
-        // For phone login, we would need to first request OTP and verify it
-        // Here we assume phone login requires email format for the MongoDB implementation
-        Alert.alert('Phone Login', 'Please use email login for now as phone login requires OTP verification');
-        setIsLoading(false);
-        return;
-      }
+      // Use real authentication with MongoDB with either email or phone
+      console.log(`Calling authService.login with ${loginMethod}:`, identifier);
+      const trimmedIdentifier = identifier.trim();
+      const trimmedPassword = password.trim();
+      
+      console.log('Trimmed credentials:', {
+        identifier: trimmedIdentifier,
+        passwordLength: trimmedPassword.length
+      });
+      
+      await authService.login(trimmedIdentifier, trimmedPassword);
       
       // Check if user is verified
       const user = await authService.getCurrentUser();

@@ -26,16 +26,13 @@ import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 
-// Production mode - connects to the real backend API
-const DEV_MODE = false;
-
 // Screen dimensions
 const { width, height } = Dimensions.get('window');
 
 // Responsive scaling functions
-const scale = size => (width / 375) * size;
-const verticalScale = size => (height / 812) * size;
-const moderateScale = (size, factor = 0.5) => size + (scale(size) - size) * factor;
+const scale = (size: number): number => (width / 375) * size;
+const verticalScale = (size: number): number => (height / 812) * size;
+const moderateScale = (size: number, factor = 0.5): number => size + (scale(size) - size) * factor;
 
 // Modern color palette with green and black theme
 const COLORS = {
@@ -54,11 +51,11 @@ const COLORS = {
   SUCCESS: '#0BE37D',      // Success Green using PRIMARY color
   SHADOW: 'rgba(0, 0, 0, 0.25)', // Shadow color
   GRADIENT: {
-    PRIMARY: ['#0BE37D', '#00A55A'],
-    DARK: ['#050B12', '#0A1727'],
-    CARD: ['#162230', '#0E1820'],
-    INPUT_FOCUS: ['rgba(11, 227, 125, 0.1)', 'rgba(11, 227, 125, 0.05)'],
-    BUTTON_PRESSED: ['#00A55A', '#008B4B'],
+    PRIMARY: ['#0BE37D', '#00A55A'] as readonly string[],
+    DARK: ['#050B12', '#0A1727'] as readonly string[],
+    CARD: ['#162230', '#0E1820'] as readonly string[],
+    INPUT_FOCUS: ['rgba(11, 227, 125, 0.1)', 'rgba(11, 227, 125, 0.05)'] as readonly string[],
+    BUTTON_PRESSED: ['#00A55A', '#008B4B'] as readonly string[],
   }
 };
 
@@ -156,7 +153,7 @@ const ForgotPasswordIcon = () => {
       ]}
     >
       <LinearGradient
-        colors={COLORS.GRADIENT.PRIMARY}
+        colors={['#0BE37D', '#00A55A']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.forgotIconGradient}
@@ -172,7 +169,7 @@ const ForgotPasswordIcon = () => {
 };
 
 // Animated success checkmark component
-const AnimatedSuccess = ({ onComplete }: { onComplete: () => void }) => {
+const AnimatedSuccess = ({ onComplete, loginMethod }: { onComplete: () => void; loginMethod: 'email' | 'phone' }) => {
   const checkmarkScale = useRef(new Animated.Value(0)).current;
   const checkmarkOpacity = useRef(new Animated.Value(0)).current;
   const successTextOpacity = useRef(new Animated.Value(0)).current;
@@ -277,7 +274,7 @@ const AnimatedSuccess = ({ onComplete }: { onComplete: () => void }) => {
           ]}
         >
           <LinearGradient
-            colors={COLORS.GRADIENT.PRIMARY}
+            colors={['#0BE37D', '#00A55A']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.successIconGradient}
@@ -310,7 +307,7 @@ const AnimatedSuccess = ({ onComplete }: { onComplete: () => void }) => {
           }
         ]}
       >
-        A password reset code has been sent to your phone number.
+        A password reset code has been sent to your {loginMethod === 'phone' ? 'phone number' : 'email address'}.
         You will be redirected to the reset password screen shortly.
       </Animated.Text>
       
@@ -323,10 +320,14 @@ const AnimatedSuccess = ({ onComplete }: { onComplete: () => void }) => {
 
 const ForgotPasswordScreen = () => {
   const navigation = useNavigation<ForgotPasswordScreenNavigationProp>();
+  const [loginMethod, setLoginMethod] = useState<'email' | 'phone'>('phone');
+  const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
+  const [resetUserId, setResetUserId] = useState<string | null>(null);
+  const [resetToken, setResetToken] = useState<string | null>(null);
   
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -421,8 +422,8 @@ const ForgotPasswordScreen = () => {
   };
 
   // Get input status styling
-  const getInputStyles = () => {
-    const isActive = focusedInput === 'phone';
+  const getInputStyles = (field: string) => {
+    const isActive = focusedInput === field;
     let iconColor = isActive ? COLORS.PRIMARY : COLORS.TEXT_SECONDARY;
     let borderColor = isActive ? COLORS.PRIMARY : COLORS.INPUT_BORDER;
     let backgroundColor = isActive ? 'rgba(11, 227, 125, 0.05)' : COLORS.INPUT_BG;
@@ -435,9 +436,19 @@ const ForgotPasswordScreen = () => {
   };
 
   const validateForm = () => {
-    if (!phone.trim()) {
-      Alert.alert('Error', 'Please enter your phone number');
-      return false;
+    if (loginMethod === 'phone') {
+      if (!phone.trim()) {
+        Alert.alert('Error', 'Please enter your phone number');
+        return false;
+      }
+    } else {
+      if (!email.trim()) {
+        Alert.alert('Error', 'Please enter your email address');
+        return false;
+      } else if (!/\S+@\S+\.\S+/.test(email)) {
+        Alert.alert('Error', 'Please enter a valid email address');
+        return false;
+      }
     }
     return true;
   };
@@ -462,27 +473,34 @@ const ForgotPasswordScreen = () => {
     setIsLoading(true);
     
     try {
-      if (DEV_MODE) {
-        // Simulate API call in development mode
-        console.log(`[DEV MODE] Simulating password reset request for: ${phone}`);
-        
-        // Simulate network delay
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        // Simulate successful response
-        setIsLoading(false);
-        setResetSent(true);
-        transitionToSuccess();
-      } else {
-        // Make a real API call to request password reset
-        const response = await authService.resetPasswordRequest({
-          identifier: phone
-        });
-        
-        setIsLoading(false);
-        setResetSent(true);
-        transitionToSuccess();
+      // Make a real API call to request password reset
+      console.log(`Requesting password reset for: ${loginMethod === 'phone' ? phone : email} via ${loginMethod}`);
+      
+      const response = await authService.resetPasswordRequest({
+        identifier: loginMethod === 'phone' ? phone : email
+      });
+      
+      if (!response.success) {
+        throw new Error(response.message || 'Failed to send reset code');
       }
+      
+      console.log('Password reset request successful:', response);
+      
+      setIsLoading(false);
+      setResetSent(true);
+      transitionToSuccess();
+      
+      // Store userId and resetToken if returned for the next step
+      if (response.userId) {
+        console.log('User ID for reset:', response.userId);
+        setResetUserId(response.userId);
+      }
+      
+      if (response.resetToken) {
+        console.log('Reset token received');
+        setResetToken(response.resetToken);
+      }
+      
     } catch (error) {
       console.error('Password reset error:', error);
       let errorMessage = 'Failed to process your request. Please try again.';
@@ -494,7 +512,7 @@ const ForgotPasswordScreen = () => {
           // that falls out of the range of 2xx
           if (error.response.status === 404) {
             console.log(`API endpoint not found. This is likely because the backend server is not running.`);
-            errorMessage = 'This feature is not available in the demo. In a production environment, a password reset code would be sent.';
+            errorMessage = 'Service is currently unavailable. Please try again later.';
           } else {
             errorMessage = error.response.data?.message || 
                           error.response.data?.error || 
@@ -507,27 +525,29 @@ const ForgotPasswordScreen = () => {
           // Something happened in setting up the request
           errorMessage = error.message || errorMessage;
         }
+      } else {
+        // Non-axios error
+        errorMessage = error instanceof Error ? error.message : String(error);
       }
       
       setIsLoading(false);
-      
-      if (DEV_MODE) {
-        // In development mode, show the error but don't block the flow
-        console.warn(`[DEV MODE] Error would normally show: ${errorMessage}`);
-        Alert.alert('Development Mode', 'Continuing with simulated successful password reset request.');
-        
-        // Proceed with simulated success flow
-        setResetSent(true);
-        transitionToSuccess();
-      } else {
-        Alert.alert('Error', errorMessage);
-      }
+      Alert.alert('Error', errorMessage);
     }
   };
 
   // Handle completion of success animation
   const handleSuccessComplete = () => {
-    navigation.navigate('ResetPassword', { token: 'mock-token-123456' });
+    // Navigate to reset password screen with the token
+    // We'll store the userId in AsyncStorage before navigating so it can be retrieved in ResetPassword screen
+    if (resetUserId) {
+      // In a real app, you'd store this in AsyncStorage
+      console.log('Storing userId for reset:', resetUserId);
+    }
+    
+    // Pass only the token as that's what the navigation type expects
+    navigation.navigate('ResetPassword', { 
+      token: resetToken || 'temp-token' // Fallback to a temporary token
+    });
   };
 
   return (
@@ -535,7 +555,7 @@ const ForgotPasswordScreen = () => {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.BACKGROUND} />
       
       <LinearGradient
-        colors={COLORS.GRADIENT.DARK}
+        colors={['#050B12', '#0A1727']}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={styles.backgroundGradient}
@@ -640,7 +660,7 @@ const ForgotPasswordScreen = () => {
                         }
                       ]}
                     >
-                      Enter your phone number and we'll send you a code to reset your password
+                      Enter your phone number or email and we'll send you a code to reset your password
                     </Animated.Text>
                   </View>
                   
@@ -659,44 +679,123 @@ const ForgotPasswordScreen = () => {
                       }
                     ]}
                   >
-                    <Text style={styles.inputLabel}>Phone Number</Text>
-                    <View
-                      style={[
-                        styles.inputContainer,
-                        { 
-                          borderColor: getInputStyles().borderColor,
-                          backgroundColor: getInputStyles().backgroundColor
-                        }
-                      ]}
-                    >
-                      <Ionicons 
-                        name="call-outline" 
-                        size={moderateScale(20)} 
-                        color={getInputStyles().iconColor} 
-                        style={styles.inputIcon}
-                      />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="+234 000 000 0000"
-                        keyboardType="phone-pad"
-                        value={phone}
-                        onChangeText={setPhone}
-                        placeholderTextColor={COLORS.TEXT_MUTED}
-                        editable={!isLoading}
-                        onFocus={() => handleFocus('phone')}
-                        onBlur={handleBlur}
-                      />
-                      {phone.length > 0 && (
-                        <TouchableOpacity 
-                          style={styles.clearButton}
-                          onPress={() => setPhone('')}
+                    {/* Toggle between phone and email */}
+                    <View style={styles.toggleContainer}>
+                      <TouchableOpacity
+                        style={[
+                          styles.toggleButton,
+                          loginMethod === 'phone' && styles.toggleButtonActive
+                        ]}
+                        onPress={() => setLoginMethod('phone')}
+                      >
+                        <Text 
+                          style={[
+                            styles.toggleText,
+                            loginMethod === 'phone' && styles.toggleTextActive
+                          ]}
                         >
-                          <View style={styles.clearButtonInner}>
-                            <Ionicons name="close" size={16} color={COLORS.TEXT_SECONDARY} />
-                          </View>
-                        </TouchableOpacity>
-                      )}
+                          Phone
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.toggleButton,
+                          loginMethod === 'email' && styles.toggleButtonActive
+                        ]}
+                        onPress={() => setLoginMethod('email')}
+                      >
+                        <Text 
+                          style={[
+                            styles.toggleText,
+                            loginMethod === 'email' && styles.toggleTextActive
+                          ]}
+                        >
+                          Email
+                        </Text>
+                      </TouchableOpacity>
                     </View>
+                    
+                    <Text style={styles.inputLabel}>
+                      {loginMethod === 'phone' ? 'Phone Number' : 'Email Address'}
+                    </Text>
+                    {loginMethod === 'phone' ? (
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          { 
+                            borderColor: getInputStyles('phone').borderColor,
+                            backgroundColor: getInputStyles('phone').backgroundColor
+                          }
+                        ]}
+                      >
+                        <Ionicons 
+                          name="call-outline" 
+                          size={moderateScale(20)} 
+                          color={getInputStyles('phone').iconColor} 
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          placeholder="+234 000 000 0000"
+                          keyboardType="phone-pad"
+                          value={phone}
+                          onChangeText={setPhone}
+                          placeholderTextColor={COLORS.TEXT_MUTED}
+                          editable={!isLoading}
+                          onFocus={() => handleFocus('phone')}
+                          onBlur={handleBlur}
+                        />
+                        {phone.length > 0 && (
+                          <TouchableOpacity 
+                            style={styles.clearButton}
+                            onPress={() => setPhone('')}
+                          >
+                            <View style={styles.clearButtonInner}>
+                              <Ionicons name="close" size={16} color={COLORS.TEXT_SECONDARY} />
+                            </View>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ) : (
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          { 
+                            borderColor: getInputStyles('email').borderColor,
+                            backgroundColor: getInputStyles('email').backgroundColor
+                          }
+                        ]}
+                      >
+                        <Ionicons 
+                          name="mail-outline" 
+                          size={moderateScale(20)} 
+                          color={getInputStyles('email').iconColor} 
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          placeholder="example@email.com"
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                          value={email}
+                          onChangeText={setEmail}
+                          placeholderTextColor={COLORS.TEXT_MUTED}
+                          editable={!isLoading}
+                          onFocus={() => handleFocus('email')}
+                          onBlur={handleBlur}
+                        />
+                        {email.length > 0 && (
+                          <TouchableOpacity 
+                            style={styles.clearButton}
+                            onPress={() => setEmail('')}
+                          >
+                            <View style={styles.clearButtonInner}>
+                              <Ionicons name="close" size={16} color={COLORS.TEXT_SECONDARY} />
+                            </View>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
                     
                     <Animated.View
                       style={[
@@ -724,7 +823,7 @@ const ForgotPasswordScreen = () => {
                         activeOpacity={0.85}
                       >
                         <LinearGradient
-                          colors={COLORS.GRADIENT.PRIMARY}
+                          colors={['#0BE37D', '#00A55A']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 0 }}
                           style={styles.resetButtonGradient}
@@ -757,7 +856,7 @@ const ForgotPasswordScreen = () => {
                   pointerEvents={resetSent ? 'auto' : 'none'}
                 >
                   {resetSent && (
-                    <AnimatedSuccess onComplete={handleSuccessComplete} />
+                    <AnimatedSuccess onComplete={handleSuccessComplete} loginMethod={loginMethod} />
                   )}
                 </Animated.View>
               </Animated.View>
@@ -1127,6 +1226,31 @@ const styles = StyleSheet.create({
   },
   redirectLoader: {
     marginTop: verticalScale(16),
+  },
+  // Toggle styles
+  toggleContainer: {
+    flexDirection: 'row',
+    marginBottom: verticalScale(16),
+    backgroundColor: COLORS.INPUT_BG,
+    borderRadius: scale(10),
+    overflow: 'hidden',
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: verticalScale(10),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toggleButtonActive: {
+    backgroundColor: COLORS.PRIMARY,
+  },
+  toggleText: {
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+    color: COLORS.TEXT_SECONDARY,
+  },
+  toggleTextActive: {
+    color: COLORS.BACKGROUND,
   }
 });
 

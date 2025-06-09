@@ -123,28 +123,38 @@ export const register = async (req, res) => {
  */
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, phoneNumber } = req.body;
     
-    if (!email || !password) {
+    // Allow login with either email or phone number
+    if ((!email && !phoneNumber) || !password) {
       return res.status(400).json({
         status: 'error',
-        message: 'Email and password are required'
+        message: 'Email/phone number and password are required'
       });
     }
     
+    // Log the login attempt for debugging
+    console.log('Login attempt with:', {
+      email: email || 'N/A', 
+      loginMethod: email ? 'email' : 'phone',
+      passwordLength: password?.length,
+      phone: phoneNumber || 'N/A'
+    });
+    
     try {
+      // Create the query based on whether email or phone was provided
+      const query = email 
+        ? { email: email.toLowerCase() }
+        : { phoneNumber: phoneNumber };
+      
       // Try to find user in rider database first
       const riderDb = await getRiderDb();
-      let user = await riderDb.collection('users').findOne({ 
-        email: email.toLowerCase() 
-      });
+      let user = await riderDb.collection('users').findOne(query);
       
       // If not found in rider DB, try passenger DB
       if (!user) {
         const passengerDb = await getPassengerDb();
-        user = await passengerDb.collection('users').findOne({ 
-          email: email.toLowerCase() 
-        });
+        user = await passengerDb.collection('users').findOne(query);
       }
       
       if (!user) {
