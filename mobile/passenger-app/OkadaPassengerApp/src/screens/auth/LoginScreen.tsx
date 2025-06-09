@@ -161,7 +161,7 @@ export default function LoginScreen({ navigation }: Props) {
     }
   }, [error, dispatch]);
   
-  // Validate email
+  // Validate email or phone number
   const validateEmail = (text: string) => {
     setEmail(text);
     if (text.length === 0) {
@@ -169,8 +169,12 @@ export default function LoginScreen({ navigation }: Props) {
       return;
     }
     
+    // Check if input is an email or phone number
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    setEmailValid(emailRegex.test(text));
+    const phoneRegex = /^\+[0-9]{10,15}$/; // International format with + prefix
+    
+    // Valid if either email or phone format is correct
+    setEmailValid(emailRegex.test(text) || phoneRegex.test(text));
   };
   
   // Validate password
@@ -398,14 +402,14 @@ export default function LoginScreen({ navigation }: Props) {
                     emailValid === true && styles.inputSuccess
                   ]}>
                     <Ionicons 
-                      name="mail-outline" 
+                      name="person-outline" 
                       size={18} 
                       color={COLORS.GOLD} 
                       style={styles.inputIcon} 
                     />
                     <TextInput
                       style={styles.input}
-                      placeholder="Email Address"
+                      placeholder="Email or Phone (+xxxx)"
                       placeholderTextColor={COLORS.GRAY}
                       value={email}
                       onChangeText={validateEmail}
@@ -420,7 +424,7 @@ export default function LoginScreen({ navigation }: Props) {
                     )}
                   </View>
                   {emailValid === false && (
-                    <Text style={styles.errorText}>Please enter a valid email address</Text>
+                    <Text style={styles.errorText}>Please enter a valid email or phone number (with + prefix)</Text>
                   )}
                 </Animated.View>
                 

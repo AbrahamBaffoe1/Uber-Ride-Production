@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { API_BASE_URL } from '../../api/apiClient';
+import { API_BASE_URL } from '../../api/config';
 import { 
   View, 
   Text, 
@@ -93,7 +93,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
     outputRange: ['0deg', '360deg']
   });
   
-  // Validate email format
+  // Validate email or phone format
   const validateEmail = (text: string) => {
     setEmail(text);
     if (text.length === 0) {
@@ -102,7 +102,10 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
     }
     
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    setEmailValid(emailRegex.test(text));
+    const phoneRegex = /^\+[0-9]{10,15}$/; // International format with + prefix
+    
+    // Valid if either email or phone format is correct
+    setEmailValid(emailRegex.test(text) || phoneRegex.test(text));
   };
   
   // Start entrance animations when component mounts
@@ -513,7 +516,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                     }}
                   >
                     <Text style={styles.title}>Reset Password</Text>
-                    <Text style={styles.subtitle}>Enter your email address below and we'll send you instructions to reset your password</Text>
+                    <Text style={styles.subtitle}>Enter your email or phone number below and we'll send you instructions to reset your password</Text>
                   </Animated.View>
                   
                   {/* Form Container */}
@@ -539,7 +542,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                         emailValid === true && styles.inputSuccess
                       ]}>
                         <Ionicons 
-                          name="mail-outline" 
+                          name="person-outline" 
                           size={18} 
                           color={COLORS.GOLD} 
                           style={styles.inputIcon} 
@@ -547,7 +550,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                         <TextInput
                           ref={emailInputRef}
                           style={styles.input}
-                          placeholder="Email Address"
+                          placeholder="Email or Phone (+xxxx)"
                           placeholderTextColor={COLORS.GRAY}
                           value={email}
                           onChangeText={validateEmail}
@@ -563,7 +566,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                         )}
                       </View>
                       {emailValid === false && (
-                        <Text style={styles.errorText}>Please enter a valid email address</Text>
+                        <Text style={styles.errorText}>Please enter a valid email or phone number (with + prefix)</Text>
                       )}
                     </Animated.View>
                     

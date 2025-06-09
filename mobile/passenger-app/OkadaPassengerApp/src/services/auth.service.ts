@@ -65,6 +65,14 @@ class AuthService {
       // Determine if identifier is email or phone
       const isEmail = identifier.includes('@');
       
+      // Log login attempt for debugging
+      console.log('Login attempt with:', {
+        email: isEmail ? identifier : 'N/A',
+        loginMethod: isEmail ? 'email' : 'phone',
+        passwordLength: password.length,
+        phone: !isEmail ? identifier : 'N/A'
+      });
+      
       const response = await apiClient.post<any>(API_ENDPOINTS.AUTH.LOGIN, {
         email: isEmail ? identifier : undefined,
         phoneNumber: !isEmail ? identifier : undefined,
