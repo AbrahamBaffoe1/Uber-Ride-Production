@@ -1,102 +1,48 @@
 import authService from './auth.service';
 
 /**
- * Listen for authentication state changes
- * @param callback Function to call when auth state changes
- * @returns Unsubscribe function
+ * Helper function to handle auth state changes
+ * This acts as a bridge between the auth service and components
+ * 
+ * @param callback Function to be called when auth state changes
+ * @returns Function to unsubscribe from auth state changes
  */
-export const onAuthStateChanged = (callback: (user: any) => void) => {
-  return authService.onAuthStateChanged((isAuthenticated) => {
+export const onAuthStateChanged = (callback: (user: any) => void): (() => void) => {
+  // Set up subscription to auth service
+  const unsubscribe = authService.onAuthStateChanged((isAuthenticated) => {
     if (isAuthenticated) {
+      // If authenticated, get the user data
       const user = authService.getUser();
       callback(user);
     } else {
+      // If not authenticated, pass null to indicate logged out state
       callback(null);
     }
   });
+  
+  return unsubscribe;
 };
 
 /**
- * Sign in with email/phone and password
- * @param identifier Email or phone
- * @param password User password
+ * Check if user is currently authenticated
+ * @returns Promise<boolean> indicating auth state
  */
-export const signIn = async (identifier: string, password: string) => {
-  return authService.login(identifier, password);
+export const isAuthenticated = async (): Promise<boolean> => {
+  return await authService.checkAuthState();
 };
 
 /**
- * Sign up a new user
- * @param userData User registration data
+ * Get current user synchronously (no API call)
+ * @returns User object or null if not authenticated
  */
-export const signUp = async (userData: {
-  firstName: string;
-  lastName: string;
-  email?: string;
-  phone?: string;
-  password: string;
-  countryCode?: string;
-}) => {
-  return authService.register(userData);
-};
-
-/**
- * Sign out the current user
- */
-export const signOut = async () => {
-  return authService.logout();
-};
-
-/**
- * Get the current user
- */
-export const getCurrentUser = () => {
+export const getCurrentUser = (): any => {
   return authService.getUser();
 };
 
 /**
- * Check if user is authenticated
+ * Sign out the current user
+ * @returns Promise that resolves when logout is complete
  */
-export const isAuthenticated = () => {
-  return authService.getIsAuthenticated();
-};
-
-/**
- * Request password reset
- * @param identifier Email or phone
- */
-export const requestPasswordReset = async (identifier: string) => {
-  return authService.requestPasswordReset(identifier);
-};
-
-/**
- * Reset password with OTP
- * @param userId User ID
- * @param code OTP code
- * @param newPassword New password
- */
-export const resetPassword = async (userId: string, code: string, newPassword: string) => {
-  return authService.resetPassword(userId, code, newPassword);
-};
-
-/**
- * Verify OTP
- * @param userId User ID
- * @param code OTP code
- * @param type Verification type
- */
-export const verifyOTP = async (userId: string, code: string, type: string = 'verification') => {
-  return authService.verifyOTP(userId, code, type);
-};
-
-export default {
-  onAuthStateChanged,
-  signIn,
-  signUp,
-  signOut,
-  getCurrentUser,
-  isAuthenticated,
-  requestPasswordReset,
-  resetPassword,
-  verifyOTP
+export const signOut = async (): Promise<void> => {
+  return await authService.logout();
 };

@@ -82,7 +82,8 @@ if (Platform.OS === 'ios') {
   AppRegistry.registerComponent('main', () => SafeApp);
 }
 
-// Mark initialization as complete - no action needed as NativeExceptionWrapper auto-initializes
+// Mark initialization as complete
+NativeExceptionWrapper.markInitialized();
 
 // Export a marker that this index.js includes the direct native patching
 export const __HAS_CPP_EXCEPTION_FIX__ = true;

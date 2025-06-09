@@ -9,10 +9,14 @@ export interface SavedLocation {
     latitude: number;
     longitude: number;
   };
-  icon: string;
-  userId: string;
-  createdAt: string;
-  updatedAt: string;
+  icon?: string;
+  userId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  type?: string;
+  source?: string;
+  popularity?: number;
+  rating?: number;
 }
 
 export interface ApiResponse<T> {
@@ -31,6 +35,7 @@ export interface PopularDestination {
     longitude: number;
   };
   popularity: number;
+  type?: string;
 }
 
 export interface CityCenter {
@@ -64,6 +69,87 @@ class LocationService {
       return response.data.locations || [];
     } catch (error) {
       console.error('Error fetching saved locations:', error);
+      return []; // Return empty array on error for graceful handling
+    }
+  }
+
+  /**
+   * Get suggested locations based on user's current location
+   * This will return saved locations if available, or popular destinations if not
+   */
+  async getSuggestedLocations(latitude?: number, longitude?: number): Promise<SavedLocation[]> {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      
+      if (!token) {
+        throw new Error('Authentication token not found');
+      }
+      
+      const params: any = {};
+      if (latitude && longitude) {
+        params.latitude = latitude;
+        params.longitude = longitude;
+      }
+      
+      const response = await apiClient.get<ApiResponse<any>>('/locations/suggestions', { params });
+      
+      if (response.status !== 'success' || !response.data) {
+        // If suggestions fail, fallback to popular destinations
+        const popularDestinations = await this.getPopularDestinations();
+        return popularDestinations.map(dest => ({
+          id: dest.id,
+          name: dest.name,
+          address: dest.address,
+          coordinates: dest.coordinates,
+          type: dest.type,
+          source: 'popular'
+        }));
+      }
+      
+      // Backend returns { status: 'success', data: { suggestions: [...] } }
+      return response.data.suggestions || [];
+    } catch (error) {
+      console.error('Error fetching suggested locations:', error);
+      // Fallback to popular destinations if suggestions fail
+      const popularDestinations = await this.getPopularDestinations();
+      return popularDestinations.map(dest => ({
+        id: dest.id,
+        name: dest.name,
+        address: dest.address,
+        coordinates: dest.coordinates,
+        type: dest.type,
+        source: 'popular'
+      }));
+    }
+  }
+
+  /**
+   * Search for locations using Google Places API
+   */
+  async searchLocations(query: string, latitude?: number, longitude?: number): Promise<SavedLocation[]> {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      
+      if (!token) {
+        throw new Error('Authentication token not found');
+      }
+      
+      const params: any = { query };
+      if (latitude && longitude) {
+        params.latitude = latitude;
+        params.longitude = longitude;
+      }
+      
+      const response = await apiClient.get<ApiResponse<any>>('/locations/search', { params });
+      
+      if (response.status !== 'success' || !response.data) {
+        throw new Error(response.message || 'Failed to search locations');
+      }
+      
+      // Backend returns { status: 'success', data: { results: [...] } }
+      return response.data.results || [];
+    } catch (error) {
+      console.error('Error searching locations:', error);
       return []; // Return empty array on error for graceful handling
     }
   }
