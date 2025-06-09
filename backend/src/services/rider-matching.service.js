@@ -1,388 +1,671 @@
 /**
  * Rider Matching Service
- * Advanced rider matching algorithm to find the best rider for a ride request
+ * Provides intelligent rider matching and availability tracking
  */
-const RiderLocation = require('../mongodb/models/RiderLocation');
-const User = require('../mongodb/models/User');
-const mapsService = require('./maps.service');
+import mongoose from 'mongoose';
+import { calculateETA } from './pricing-engine.service.js';
 
-/**
- * Calculate proximity score based on distance
- * @param {number} distance Distance in meters
- * @returns {number} Proximity score (0-1)
- */
-const calculateProximityScore = (distance) => {
-  // For distances less than 500m, score is almost perfect
-  if (distance < 500) {
-    return 0.9 + (500 - distance) / 5000; // 0.9 - 1.0
-  }
-  
-  // For distances between 500m and 5km, score decreases linearly
-  if (distance < 5000) {
-    return 0.5 + (5000 - distance) / 9000; // 0.5 - 0.9
-  }
-  
-  // For distances between 5km and 10km, score decreases faster
-  if (distance < 10000) {
-    return 0.1 + (10000 - distance) / 20000; // 0.1 - 0.5
-  }
-  
-  // For distances beyond 10km, score is very low
-  return 0.1 * (20000 - Math.min(distance, 20000)) / 10000; // 0 - 0.1
-};
+// Try to load models dynamically to avoid circular dependencies
+let RiderLocation, User, Ride;
 
-/**
- * Calculate rating score
- * @param {number} rating Rider rating (0-5)
- * @returns {number} Rating score (0-1)
- */
-const calculateRatingScore = (rating) => {
-  // No rating (new rider) gets a medium score
-  if (!rating) return 0.5;
-  
-  // Convert 0-5 rating to 0-1 score
-  return Math.min(1, Math.max(0, rating / 5));
-};
-
-/**
- * Calculate activity score
- * @param {Date} lastActive Last activity timestamp
- * @returns {number} Activity score (0-1)
- */
-const calculateActivityScore = (lastActive) => {
-  if (!lastActive) return 0;
-  
-  const now = new Date();
-  const minutesAgo = (now - new Date(lastActive)) / (1000 * 60);
-  
-  // If active in the last 2 minutes, perfect score
-  if (minutesAgo < 2) return 1;
-  
-  // If active in the last 10 minutes, high score
-  if (minutesAgo < 10) return 0.8;
-  
-  // If active in the last 30 minutes, medium score
-  if (minutesAgo < 30) return 0.5;
-  
-  // If active in the last hour, low score
-  if (minutesAgo < 60) return 0.3;
-  
-  // Otherwise, very low score
-  return 0.1;
-};
-
-/**
- * Calculate completion rate score
- * @param {number} completedRides Number of completed rides
- * @param {number} totalRides Total number of rides
- * @returns {number} Completion rate score (0-1)
- */
-const calculateCompletionScore = (completedRides, totalRides) => {
-  if (!totalRides || totalRides < 10) return 0.5; // Not enough data
-  
-  const completionRate = completedRides / totalRides;
-  
-  // Scale to prioritize high completion rates
-  return Math.min(1, Math.max(0, (completionRate - 0.7) * 3.333));
-};
-
-/**
- * Find the best rider for a ride request
- * @param {Object} pickupLocation Pickup location coordinates
- * @param {Object} destination Destination coordinates
- * @param {Object} options Additional matching options
- * @returns {Promise<Object>} Best matched rider with score details
- */
-const findBestRider = async (pickupLocation, destination, options = {}) => {
+// Function to import models
+const importModels = async () => {
   try {
+    const RiderLocationModule = await import('../mongodb/models/RiderLocation.js');
+    const UserModule = await import('../mongodb/models/User.js');
+    const RideModule = await import('../mongodb/models/Ride.js');
+    
+    RiderLocation = RiderLocationModule.default;
+    User = UserModule.default;
+    Ride = RideModule.default;
+  } catch (error) {
+    console.error('Error importing models in rider matching service:', error);
+  }
+};
+
+// Rider matching configurations
+const MATCHING_CONFIG = {
+  // Maximum distance in meters to consider riders
+  maxDistance: 5000,
+  
+  // Maximum number of riders to match for a request
+  maxRiders: 10,
+  
+  // Weights for different matching factors (0-1)
+  weights: {
+    distance: 0.5,      // Weight for proximity
+    rating: 0.2,        // Weight for rider rating
+    acceptance: 0.15,   // Weight for rider acceptance rate
+    completion: 0.15    // Weight for ride completion rate
+  },
+  
+  // Timeout for rider to accept a ride (seconds)
+  acceptanceTimeout: 30,
+  
+  // Minimum rider rating to be eligible
+  minimumRating: 3.0,
+  
+  // How long to cache rider density data (seconds)
+  densityCacheTTL: 60,
+};
+
+// Cache for rider density data
+const riderDensityCache = new Map();
+
+/**
+ * Find nearby riders with intelligent ranking
+ * @param {Object} params Search parameters
+ * @param {Object} params.location Pickup location { lat, lng }
+ * @param {number} params.maxDistance Maximum distance in meters (optional)
+ * @param {string} params.vehicleType Vehicle type preference (optional)
+ * @param {number} params.minRating Minimum rider rating (optional)
+ * @returns {Promise<Object>} Matched riders and availability info
+ */
+const findNearbyRiders = async (params) => {
+  try {
+    await importModels();
+    
     const {
-      maxDistance = 10000, // Default 10km
-      minRating = 0,       // Default no minimum rating
-      vehicleType = null,  // Default any vehicle type
-      maxResults = 5,      // Default 5 best matches
-      weightProximity = 0.5, // Default weight for proximity score
-      weightRating = 0.3,    // Default weight for rating score
-      weightActivity = 0.1,  // Default weight for activity score
-      weightCompletion = 0.1 // Default weight for completion rate score
-    } = options;
+      location,
+      maxDistance = MATCHING_CONFIG.maxDistance,
+      vehicleType = null,
+      minRating = MATCHING_CONFIG.minimumRating
+    } = params;
     
-    // Find riders within the maximum distance
-    const nearbyRiders = await RiderLocation.findNearbyRiders(
-      pickupLocation,
-      maxDistance,
-      'online'
-    );
-    
-    if (!nearbyRiders || nearbyRiders.length === 0) {
-      return {
-        success: false,
-        message: 'No riders available in your area',
-        data: {
-          riders: []
-        }
-      };
+    // Validate inputs
+    if (!location || !location.lat || !location.lng) {
+      throw new Error('Valid location coordinates are required');
     }
     
-    // Calculate ETA and total distance for each rider
-    const ridersWithEta = await Promise.all(
-      nearbyRiders.map(async (rider) => {
-        try {
-          // Get distance and duration from rider to pickup
-          const riderLocation = {
-            lat: rider.currentLocation.coordinates[1],
-            lng: rider.currentLocation.coordinates[0]
-          };
-          
-          const distanceToPickup = await mapsService.calculateDistance(
-            riderLocation,
-            pickupLocation,
-            'driving'
-          );
-          
-          // Get distance and duration from pickup to destination
-          const rideDistance = await mapsService.calculateDistance(
-            pickupLocation,
-            destination,
-            'driving'
-          );
-          
-          // If vehicle type is specified, filter out riders with different vehicle types
-          if (vehicleType && 
-              rider.riderId.riderProfile && 
-              rider.riderId.riderProfile.vehicleType !== vehicleType) {
-            return null;
-          }
-          
-          // If minimum rating is specified, filter out riders with lower ratings
-          const riderRating = rider.riderId.riderProfile?.averageRating || 0;
-          if (minRating > 0 && riderRating < minRating) {
-            return null;
-          }
-          
-          // Get completion rate from rider profile
-          const completedRides = rider.riderId.riderProfile?.totalRides || 0;
-          const totalRides = completedRides; // In a real app, track total ride requests as well
-          
-          // Calculate scores
-          const distanceMeters = distanceToPickup.success ? 
-            distanceToPickup.data.distance.value : 
-            calculateDistance(riderLocation, pickupLocation);
-            
-          const proximityScore = calculateProximityScore(distanceMeters);
-          const ratingScore = calculateRatingScore(riderRating);
-          const activityScore = calculateActivityScore(rider.lastUpdated);
-          const completionScore = calculateCompletionScore(completedRides, totalRides);
-          
-          // Calculate weighted score
-          const totalScore = 
-            (proximityScore * weightProximity) +
-            (ratingScore * weightRating) +
-            (activityScore * weightActivity) +
-            (completionScore * weightCompletion);
-          
-          return {
-            rider: rider.riderId,
-            location: riderLocation,
-            distance: distanceMeters,
-            eta: distanceToPickup.success ? distanceToPickup.data.duration.text : 'Unknown',
-            etaSeconds: distanceToPickup.success ? distanceToPickup.data.duration.value : null,
-            rating: riderRating,
-            lastActive: rider.lastUpdated,
-            status: rider.status,
-            scores: {
-              proximity: proximityScore,
-              rating: ratingScore,
-              activity: activityScore,
-              completion: completionScore,
-              total: totalScore
-            },
-            rideDetails: {
-              distance: rideDistance.success ? rideDistance.data.distance.text : 'Unknown',
-              duration: rideDistance.success ? rideDistance.data.duration.text : 'Unknown',
-              distanceMeters: rideDistance.success ? rideDistance.data.distance.value : null,
-              durationSeconds: rideDistance.success ? rideDistance.data.duration.value : null
-            }
-          };
-        } catch (error) {
-          console.error(`Error calculating scores for rider ${rider.riderId._id}:`, error);
-          return null;
+    // Convert to MongoDB Point coordinates
+    const coordinates = [location.lng, location.lat];
+    
+    // Build query for nearby riders
+    const query = {
+      status: 'online',
+      currentLocation: {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates
+          },
+          $maxDistance: maxDistance
         }
-      })
+      }
+    };
+    
+    // Add vehicle type filter if specified
+    if (vehicleType) {
+      query['riderId.riderProfile.vehicleType'] = vehicleType;
+    }
+    
+    // Find nearby riders
+    let nearbyRiders = await RiderLocation.find(query)
+      .populate('riderId', 'firstName lastName phoneNumber profilePicture riderProfile');
+    
+    // Filter out riders with low ratings
+    nearbyRiders = nearbyRiders.filter(rider => {
+      const ratingValue = rider.riderId?.riderProfile?.averageRating || 5;
+      return ratingValue >= minRating;
+    });
+    
+    // Filter out riders who are already on a ride
+    const riderIds = nearbyRiders.map(rider => rider.riderId._id);
+    const activeRides = await Ride.find({
+      riderId: { $in: riderIds },
+      status: { $in: ['accepted', 'arrived_pickup', 'in_progress'] }
+    });
+    
+    const busyRiderIds = activeRides.map(ride => ride.riderId.toString());
+    nearbyRiders = nearbyRiders.filter(rider => 
+      !busyRiderIds.includes(rider.riderId._id.toString())
     );
     
-    // Filter out null entries and sort by total score
-    const validRiders = ridersWithEta
-      .filter(r => r !== null)
-      .sort((a, b) => b.scores.total - a.scores.total);
+    // Calculate scores and sort riders
+    const scoredRiders = await scoreAndRankRiders(nearbyRiders, location);
     
-    // Take the top N results
-    const topRiders = validRiders.slice(0, maxResults);
+    // Limit to max number of riders
+    const limitedRiders = scoredRiders.slice(0, MATCHING_CONFIG.maxRiders);
+    
+    // Format response
+    const formattedRiders = limitedRiders.map(rider => ({
+      riderId: rider.riderId._id,
+      name: `${rider.riderId.firstName} ${rider.riderId.lastName}`,
+      phone: rider.riderId.phoneNumber,
+      photo: rider.riderId.profilePicture,
+      vehicle: {
+        type: rider.riderId.riderProfile?.vehicleType || 'motorcycle',
+        model: rider.riderId.riderProfile?.vehicleModel || 'Standard',
+        plate: rider.riderId.riderProfile?.licensePlate || 'Unknown',
+      },
+      rating: rider.riderId.riderProfile?.averageRating || 5,
+      location: {
+        latitude: rider.currentLocation.coordinates[1],
+        longitude: rider.currentLocation.coordinates[0],
+      },
+      distance: rider.distance,
+      eta: rider.eta,
+      score: rider.score
+    }));
+    
+    // Calculate availability statistics
+    const availabilityStats = {
+      totalRiders: nearbyRiders.length,
+      availableRiders: formattedRiders.length,
+      averageETA: formattedRiders.length > 0 
+        ? Math.ceil(formattedRiders.reduce((sum, r) => sum + r.eta, 0) / formattedRiders.length)
+        : null,
+      nearestRiderDistance: formattedRiders.length > 0
+        ? formattedRiders[0].distance
+        : null,
+      nearestRiderETA: formattedRiders.length > 0
+        ? formattedRiders[0].eta
+        : null,
+      hasRidersAvailable: formattedRiders.length > 0
+    };
+    
+    // Cache density data
+    cacheRiderDensity(location, availabilityStats);
     
     return {
       success: true,
-      data: {
-        count: topRiders.length,
-        riders: topRiders,
-        pickupLocation,
-        destination
-      }
+      riders: formattedRiders,
+      availability: availabilityStats
     };
   } catch (error) {
-    console.error('Error finding best rider:', error);
+    console.error('Error finding nearby riders:', error);
     
     return {
       success: false,
-      message: error.message || 'Failed to match rider',
-      error
+      message: error.message || 'Failed to find nearby riders',
+      error: error.toString(),
+      riders: [],
+      availability: {
+        totalRiders: 0,
+        availableRiders: 0,
+        hasRidersAvailable: false
+      }
     };
   }
 };
 
 /**
- * Fallback method to calculate distance without using Maps API
- * @param {Object} point1 First point coordinates
- * @param {Object} point2 Second point coordinates
- * @returns {number} Approximate distance in meters
+ * Score and rank riders based on multiple factors
+ * @param {Array} riders Array of rider documents
+ * @param {Object} location Pickup location
+ * @returns {Promise<Array>} Scored and ranked riders
  */
-const calculateDistance = (point1, point2) => {
-  const R = 6371e3; // Earth radius in meters
-  const lat1 = point1.lat * Math.PI / 180;
-  const lat2 = point2.lat * Math.PI / 180;
-  const deltaLat = (point2.lat - point1.lat) * Math.PI / 180;
-  const deltaLng = (point2.lng - point1.lng) * Math.PI / 180;
-  
-  const a = Math.sin(deltaLat/2) * Math.sin(deltaLat/2) +
-            Math.cos(lat1) * Math.cos(lat2) *
-            Math.sin(deltaLng/2) * Math.sin(deltaLng/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  
-  return R * c; // Distance in meters
+const scoreAndRankRiders = async (riders, location) => {
+  try {
+    const scoredRiders = [];
+    
+    for (const rider of riders) {
+      try {
+        // Calculate distance score (closer is better)
+        const riderLocation = {
+          lat: rider.currentLocation.coordinates[1],
+          lng: rider.currentLocation.coordinates[0]
+        };
+        
+        // Calculate straight-line distance in meters
+        const distance = calculateHaversineDistance(
+          location.lat,
+          location.lng,
+          riderLocation.lat,
+          riderLocation.lng
+        ) * 1000;
+        
+        // Normalize distance score (0-1, closer to 1 is better)
+        const distanceScore = Math.max(0, 1 - (distance / MATCHING_CONFIG.maxDistance));
+        
+        // Get rider ratings and calculate rating score
+        const rating = rider.riderId.riderProfile?.averageRating || 5;
+        const ratingScore = (rating - MATCHING_CONFIG.minimumRating) / (5 - MATCHING_CONFIG.minimumRating);
+        
+        // Get rider acceptance rate
+        const acceptanceRate = rider.riderId.riderProfile?.acceptanceRate || 0.9;
+        const acceptanceScore = acceptanceRate;
+        
+        // Get rider completion rate
+        const completionRate = rider.riderId.riderProfile?.completionRate || 0.95;
+        const completionScore = completionRate;
+        
+        // Calculate combined score
+        const score = (
+          distanceScore * MATCHING_CONFIG.weights.distance +
+          ratingScore * MATCHING_CONFIG.weights.rating +
+          acceptanceScore * MATCHING_CONFIG.weights.acceptance +
+          completionScore * MATCHING_CONFIG.weights.completion
+        );
+        
+        // Calculate ETA
+        const eta = await calculateRiderETA(riderLocation, location);
+        
+        scoredRiders.push({
+          ...rider.toObject(),
+          distance,
+          eta,
+          score,
+          factors: {
+            distanceScore,
+            ratingScore,
+            acceptanceScore,
+            completionScore
+          }
+        });
+      } catch (error) {
+        console.error('Error scoring rider:', error);
+        // Skip this rider
+      }
+    }
+    
+    // Sort by score (highest first)
+    return scoredRiders.sort((a, b) => b.score - a.score);
+  } catch (error) {
+    console.error('Error scoring riders:', error);
+    return riders; // Return unsorted riders on error
+  }
 };
 
 /**
- * Get optimal route between multiple points considering traffic
- * @param {Array} points Array of location points to visit
- * @param {Object} options Routing options
- * @returns {Promise<Object>} Optimized route
+ * Calculate Haversine distance between two points
+ * @param {number} lat1 Starting latitude
+ * @param {number} lng1 Starting longitude
+ * @param {number} lat2 Ending latitude
+ * @param {number} lng2 Ending longitude
+ * @returns {number} Distance in kilometers
  */
-const getOptimalRoute = async (points, options = {}) => {
+const calculateHaversineDistance = (lat1, lng1, lat2, lng2) => {
+  const R = 6371; // Earth's radius in km
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lng2 - lng1);
+  
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+};
+
+/**
+ * Helper function to convert degrees to radians
+ */
+const toRadians = (degrees) => {
+  return degrees * (Math.PI / 180);
+};
+
+/**
+ * Calculate ETA for rider to reach passenger
+ * @param {Object} riderLocation Rider's location
+ * @param {Object} passengerLocation Passenger's location
+ * @returns {Promise<number>} ETA in minutes
+ */
+const calculateRiderETA = async (riderLocation, passengerLocation) => {
   try {
-    if (!points || points.length < 2) {
-      return {
-        success: false,
-        message: 'At least two points are required for routing'
-      };
+    return await calculateETA(riderLocation, passengerLocation);
+  } catch (error) {
+    console.error('Error calculating rider ETA:', error);
+    
+    // Fallback to basic calculation
+    const distance = calculateHaversineDistance(
+      riderLocation.lat,
+      riderLocation.lng,
+      passengerLocation.lat,
+      passengerLocation.lng
+    );
+    
+    // Assume average speed of 20 km/h
+    const etaMinutes = (distance / 20) * 60;
+    return Math.ceil(etaMinutes);
+  }
+};
+
+/**
+ * Cache rider density data for a location
+ * @param {Object} location Location coordinates
+ * @param {Object} stats Availability statistics
+ */
+const cacheRiderDensity = (location, stats) => {
+  try {
+    // Create a grid cell key (rounded to 3 decimal places, ~100m precision)
+    const lat = Math.round(location.lat * 1000) / 1000;
+    const lng = Math.round(location.lng * 1000) / 1000;
+    const key = `${lat},${lng}`;
+    
+    // Cache the data
+    riderDensityCache.set(key, {
+      stats,
+      timestamp: Date.now(),
+      location: { lat, lng }
+    });
+    
+    // Cleanup old entries
+    const cutoff = Date.now() - (MATCHING_CONFIG.densityCacheTTL * 1000);
+    for (const [k, v] of riderDensityCache.entries()) {
+      if (v.timestamp < cutoff) {
+        riderDensityCache.delete(k);
+      }
+    }
+  } catch (error) {
+    console.error('Error caching rider density:', error);
+  }
+};
+
+/**
+ * Get rider density map for a region
+ * @param {Object} params Region parameters
+ * @param {Object} params.center Center coordinates { lat, lng }
+ * @param {number} params.radius Radius in kilometers
+ * @returns {Promise<Object>} Rider density map
+ */
+const getRiderDensityMap = async (params) => {
+  try {
+    await importModels();
+    
+    const { center, radius = 5 } = params;
+    
+    // Validate inputs
+    if (!center || !center.lat || !center.lng) {
+      throw new Error('Valid center coordinates are required');
     }
     
-    const {
-      mode = 'driving',     // Travel mode
-      departureTime = null, // Departure time for traffic consideration
-      avoidTolls = false,   // Avoid toll roads
-      avoidHighways = false // Avoid highways
-    } = options;
-    
-    // For 2 points, just get directions
-    if (points.length === 2) {
-      const directions = await mapsService.getDirections(
-        points[0],
-        points[1],
-        mode,
-        null
+    // Get cached density data
+    const cachedMap = [];
+    for (const [key, value] of riderDensityCache.entries()) {
+      // Calculate distance from center to cached point
+      const distance = calculateHaversineDistance(
+        center.lat,
+        center.lng,
+        value.location.lat,
+        value.location.lng
       );
       
-      return directions;
+      // Include if within radius
+      if (distance <= radius) {
+        cachedMap.push({
+          location: value.location,
+          stats: value.stats,
+          distance
+        });
+      }
     }
     
-    // For more than 2 points, use waypoints optimization
-    const origin = points[0];
-    const destination = points[points.length - 1];
-    const waypoints = points.slice(1, points.length - 1);
+    // If we have enough cached data, return it
+    if (cachedMap.length >= 5) {
+      return {
+        success: true,
+        densityMap: cachedMap,
+        fromCache: true
+      };
+    }
     
-    // Build waypoints string
-    let waypointsStr = 'optimize:true|';
-    waypointsStr += waypoints.map(point => {
-      if (typeof point === 'string') {
-        return point;
-      }
-      return `${point.lat},${point.lng}`;
-    }).join('|');
+    // Otherwise fetch real-time data
+    const maxDistanceMeters = radius * 1000;
     
-    // Get directions with optimized waypoints
-    const directions = await mapsService.getDirections(
-      origin,
-      destination,
-      mode,
-      waypointsStr
-    );
+    // Find riders in the area grouped by grid cells
+    const pipeline = [
+      {
+        $geoNear: {
+          near: {
+            type: 'Point',
+            coordinates: [center.lng, center.lat]
+          },
+          distanceField: 'distance',
+          maxDistance: maxDistanceMeters,
+          query: { status: 'online' },
+          spherical: true
+        }
+      },
+      {
+        $group: {
+          _id: {
+            lat: { $round: [{ $arrayElemAt: ['$currentLocation.coordinates', 1] }, 3] },
+            lng: { $round: [{ $arrayElemAt: ['$currentLocation.coordinates', 0] }, 3] }
+          },
+          count: { $sum: 1 },
+          avgDistance: { $avg: '$distance' }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          location: { lat: '$_id.lat', lng: '$_id.lng' },
+          riderCount: '$count',
+          distance: '$avgDistance'
+        }
+      },
+      { $sort: { distance: 1 } }
+    ];
     
-    return directions;
+    const densityResults = await RiderLocation.aggregate(pipeline);
+    
+    // Find active riders in the area to estimate availability
+    const activeRides = await Ride.countDocuments({
+      'pickupLocation.coordinates': {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [center.lng, center.lat]
+          },
+          $maxDistance: maxDistanceMeters
+        }
+      },
+      status: { $in: ['requested', 'accepted', 'arrived_pickup', 'in_progress'] }
+    });
+    
+    // Format the response
+    const densityMap = densityResults.map(point => {
+      const riderCount = point.riderCount;
+      const estimatedAvailable = Math.max(0, riderCount - Math.floor(activeRides / densityResults.length));
+      
+      return {
+        location: point.location,
+        stats: {
+          totalRiders: riderCount,
+          availableRiders: estimatedAvailable,
+          hasRidersAvailable: estimatedAvailable > 0
+        },
+        distance: point.distance / 1000 // Convert to km
+      };
+    });
+    
+    // Cache the results
+    densityMap.forEach(point => {
+      cacheRiderDensity(point.location, point.stats);
+    });
+    
+    return {
+      success: true,
+      densityMap,
+      fromCache: false
+    };
   } catch (error) {
-    console.error('Error optimizing route:', error);
+    console.error('Error getting rider density map:', error);
     
     return {
       success: false,
-      message: error.message || 'Failed to optimize route',
-      error
+      message: error.message || 'Failed to get rider density map',
+      error: error.toString(),
+      densityMap: []
     };
   }
 };
 
 /**
- * Analyze demand patterns for heatmap generation
- * @param {Object} bounds Geographic bounds for the analysis
- * @param {Date} startTime Start time for analysis
- * @param {Date} endTime End time for analysis
- * @returns {Promise<Object>} Demand heatmap data
+ * Check if riders are available in a location
+ * @param {Object} location Location coordinates { lat, lng }
+ * @returns {Promise<Object>} Availability result
  */
-const analyzeDemandPatterns = async (bounds, startTime = null, endTime = null) => {
+const checkRidersAvailable = async (location) => {
   try {
-    // Default to last 24 hours if not specified
-    const start = startTime || new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const end = endTime || new Date();
+    await importModels();
     
-    // This would typically query a rides collection to get all rides within the time range
-    // For now, we'll return some sample data for demonstration
+    // Check cache first
+    const lat = Math.round(location.lat * 1000) / 1000;
+    const lng = Math.round(location.lng * 1000) / 1000;
+    const key = `${lat},${lng}`;
     
-    // In a real implementation, you would:
-    // 1. Query ride pickup locations within the bounds and time range
-    // 2. Group them by geographical cells (e.g., 0.01 degree grid cells)
-    // 3. Count rides per cell to determine demand intensity
+    if (riderDensityCache.has(key)) {
+      const cached = riderDensityCache.get(key);
+      const timestamp = cached.timestamp;
+      
+      // If cache is fresh (less than 60 seconds old)
+      if (Date.now() - timestamp < MATCHING_CONFIG.densityCacheTTL * 1000) {
+        return {
+          success: true,
+          availability: cached.stats,
+          fromCache: true
+        };
+      }
+    }
     
-    // TODO: Replace with actual database query when ride history collection is implemented
+    // If not in cache or cache expired, do a quick count query
+    const count = await RiderLocation.countDocuments({
+      status: 'online',
+      currentLocation: {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [location.lng, location.lat]
+          },
+          $maxDistance: MATCHING_CONFIG.maxDistance
+        }
+      }
+    });
     
-    // Sample heatmap data - in a real app, this would come from the database
-    const heatmapPoints = [
-      { lat: 6.5244, lng: 3.3792, weight: 10 }, // Lagos Center
-      { lat: 6.5355, lng: 3.3087, weight: 8 },  // Ikeja
-      { lat: 6.4698, lng: 3.5852, weight: 7 },  // Victoria Island
-      { lat: 6.6194, lng: 3.3613, weight: 6 },  // Agege
-      { lat: 6.4281, lng: 3.4219, weight: 9 }   // Lekki
-    ];
+    const result = {
+      totalRiders: count,
+      availableRiders: count, // Simplified, assumes all are available
+      hasRidersAvailable: count > 0,
+      nearestRiderDistance: null, // Would need more queries to determine
+      nearestRiderETA: null // Would need more queries to determine
+    };
+    
+    // Cache the result
+    cacheRiderDensity(location, result);
     
     return {
       success: true,
-      data: {
-        points: heatmapPoints,
-        timeRange: {
-          start,
-          end
-        },
-        bounds
-      }
+      availability: result,
+      fromCache: false
     };
   } catch (error) {
-    console.error('Error analyzing demand patterns:', error);
+    console.error('Error checking rider availability:', error);
     
     return {
       success: false,
-      message: error.message || 'Failed to analyze demand patterns',
-      error
+      message: error.message || 'Failed to check rider availability',
+      error: error.toString(),
+      availability: {
+        totalRiders: 0,
+        availableRiders: 0,
+        hasRidersAvailable: false
+      }
     };
   }
 };
 
-module.exports = {
-  findBestRider,
-  getOptimalRoute,
-  analyzeDemandPatterns
+/**
+ * Update rider's current ride status
+ * @param {string} riderId Rider ID
+ * @param {string} rideId Current ride ID (null if not on a ride)
+ * @returns {Promise<Object>} Update result
+ */
+const updateRiderRideStatus = async (riderId, rideId) => {
+  try {
+    await importModels();
+    
+    const update = rideId 
+      ? { currentRideId: mongoose.Types.ObjectId(rideId), status: 'busy' }
+      : { currentRideId: null, status: 'online' };
+    
+    await RiderLocation.findOneAndUpdate(
+      { riderId: mongoose.Types.ObjectId(riderId) },
+      { $set: update }
+    );
+    
+    return {
+      success: true,
+      riderId,
+      rideId,
+      status: update.status
+    };
+  } catch (error) {
+    console.error('Error updating rider ride status:', error);
+    
+    return {
+      success: false,
+      message: error.message || 'Failed to update rider status',
+      error: error.toString()
+    };
+  }
+};
+
+/**
+ * Update matching configuration
+ * @param {Object} config New configuration
+ * @returns {Object} Update result
+ */
+const updateMatchingConfig = (config) => {
+  try {
+    if (config.maxDistance !== undefined) {
+      MATCHING_CONFIG.maxDistance = config.maxDistance;
+    }
+    
+    if (config.maxRiders !== undefined) {
+      MATCHING_CONFIG.maxRiders = config.maxRiders;
+    }
+    
+    if (config.weights) {
+      Object.assign(MATCHING_CONFIG.weights, config.weights);
+    }
+    
+    if (config.acceptanceTimeout !== undefined) {
+      MATCHING_CONFIG.acceptanceTimeout = config.acceptanceTimeout;
+    }
+    
+    if (config.minimumRating !== undefined) {
+      MATCHING_CONFIG.minimumRating = config.minimumRating;
+    }
+    
+    if (config.densityCacheTTL !== undefined) {
+      MATCHING_CONFIG.densityCacheTTL = config.densityCacheTTL;
+    }
+    
+    return {
+      success: true,
+      message: 'Matching configuration updated successfully',
+      config: MATCHING_CONFIG
+    };
+  } catch (error) {
+    console.error('Error updating matching configuration:', error);
+    
+    return {
+      success: false,
+      message: error.message || 'Failed to update matching configuration',
+      error: error.toString()
+    };
+  }
+};
+
+/**
+ * Get current matching configuration
+ * @returns {Object} Current matching configuration
+ */
+const getMatchingConfig = () => {
+  return {
+    success: true,
+    config: MATCHING_CONFIG
+  };
+};
+
+export {
+  findNearbyRiders,
+  getRiderDensityMap,
+  checkRidersAvailable,
+  updateRiderRideStatus,
+  updateMatchingConfig,
+  getMatchingConfig
 };

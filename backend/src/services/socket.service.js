@@ -5,9 +5,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
+import * as pricingEngine from './pricing-engine.service.js';
+import * as riderMatching from './rider-matching.service.js';
+import * as realTimeAvailability from './real-time-availability.service.js';
 
 // MongoDB models - import dynamically to avoid circular dependencies
-let User, Ride, TrackingEvent, Notification, OTP;
+let User, Ride, TrackingEvent, Notification, OTP, RiderLocation;
 
 // Function to import models
 const importModels = async () => {
@@ -16,12 +19,14 @@ const importModels = async () => {
   const TrackingEventModule = await import('../mongodb/models/TrackingEvent.js');
   const NotificationModule = await import('../mongodb/models/Notification.js');
   const OTPModule = await import('../mongodb/models/OTP.js');
+  const RiderLocationModule = await import('../mongodb/models/RiderLocation.js');
   
   User = UserModule.default;
   Ride = RideModule.default;
   TrackingEvent = TrackingEventModule.default;
   Notification = NotificationModule.default;
   OTP = OTPModule.default;
+  RiderLocation = RiderLocationModule.default;
 };
 
 // Connection tracking
@@ -37,6 +42,9 @@ const initializeSocketServer = async (socketIo) => {
   // Import models before using them
   await importModels();
   io = socketIo;
+  
+  // Initialize real-time availability service
+  await realTimeAvailability.initialize();
 
   // Configure Socket.IO server
   io.engine.on("connection", (socket) => {
@@ -339,6 +347,75 @@ const initializeSocketServer = async (socketIo) => {
           }
         });
         
+        // Listen for passenger location updates for rider availability
+        socket.on('location:update', async (data) => {
+          try {
+            if (!data.location || !data.location.latitude || !data.location.longitude) {
+              return socket.emit('error', { message: 'Invalid location data' });
+            }
+            
+            // Track passenger location for real-time availability updates
+            await realTimeAvailability.trackPassengerLocation(userId, {
+              lat: data.location.latitude,
+              lng: data.location.longitude
+            });
+            
+            socket.emit('location:updated', { success: true });
+          } catch (error) {
+            console.error('Error handling passenger location update:', error);
+            socket.emit('error', { message: 'Failed to update location' });
+          }
+        });
+        
+        // Listen for density map requests
+        socket.on('riders:request_density_map', async () => {
+          try {
+            await realTimeAvailability.generateDensityMap(userId);
+          } catch (error) {
+            console.error('Error generating density map:', error);
+            socket.emit('error', { message: 'Failed to generate density map' });
+          }
+        });
+        
+        // Listen for fare estimation requests
+        socket.on('fare:estimate', async (data) => {
+          try {
+            if (!data.origin || !data.destination) {
+              return socket.emit('error', { message: 'Origin and destination are required' });
+            }
+            
+            const origin = {
+              lat: data.origin.latitude,
+              lng: data.origin.longitude
+            };
+            
+            const destination = {
+              lat: data.destination.latitude,
+              lng: data.destination.longitude
+            };
+            
+            // Get fare estimate from pricing engine
+            const fareEstimate = await pricingEngine.calculateFare({
+              origin,
+              destination,
+              vehicleType: data.vehicleType || 'motorcycle',
+              distanceType: data.distanceType || 'roadDistance'
+            });
+            
+            // Check for rider availability
+            const availability = await riderMatching.checkRidersAvailable(origin);
+            
+            socket.emit('fare:estimated', {
+              ...fareEstimate,
+              riderAvailability: availability.success ? availability.availability : null,
+              timestamp: new Date()
+            });
+          } catch (error) {
+            console.error('Error estimating fare:', error);
+            socket.emit('error', { message: 'Failed to estimate fare' });
+          }
+        });
+        
         // Listen for ride requests
         socket.on('ride:request', async (data) => {
           try {
@@ -439,16 +516,14 @@ const initializeSocketServer = async (socketIo) => {
 const handleRiderLocationUpdate = async (socket, data) => {
   const riderId = socket.user._id.toString();
   const { latitude, longitude, heading, speed, accuracy } = data.location;
+  const location = { lat: latitude, lng: longitude };
   
   try {
     // Create location tracking event
     await TrackingEvent.createLocationEvent({
       userId: riderId,
       userRole: 'rider',
-      location: {
-        lat: latitude,
-        lng: longitude
-      },
+      location,
       locationMetadata: {
         heading,
         speed,
@@ -460,6 +535,21 @@ const handleRiderLocationUpdate = async (socket, data) => {
       },
       sessionId: socket.id
     });
+    
+    // Update rider location in RiderLocation collection
+    if (RiderLocation) {
+      await RiderLocation.updateRiderLocation(riderId, {
+        lat: latitude,
+        lng: longitude,
+        accuracy,
+        heading,
+        speed,
+        status: data.status || 'online'
+      });
+    }
+    
+    // Notify real-time availability service about rider location update
+    await realTimeAvailability.handleRiderLocationUpdate(riderId, location, data.status || 'online');
     
     // Update rider's location in user document
     await User.findByIdAndUpdate(riderId, {
@@ -526,6 +616,27 @@ const handleRiderAvailabilityUpdate = async (socket, data) => {
       sessionId: socket.id
     });
     
+    // Get rider's last known location
+    const rider = await User.findById(riderId);
+    const location = rider?.riderProfile?.lastLocation?.coordinates 
+      ? { 
+          lat: rider.riderProfile.lastLocation.coordinates[1],
+          lng: rider.riderProfile.lastLocation.coordinates[0]
+        }
+      : null;
+    
+    // Update RiderLocation status
+    if (RiderLocation && location) {
+      await RiderLocation.updateRiderLocation(riderId, {
+        lat: location.lat,
+        lng: location.lng,
+        status
+      });
+      
+      // Notify real-time availability service about status update
+      await realTimeAvailability.handleRiderLocationUpdate(riderId, location, status);
+    }
+    
     // Update rider's availability in user document
     await User.findByIdAndUpdate(riderId, {
       'riderProfile.isActive': isAvailable
@@ -545,7 +656,7 @@ const handleRiderAvailabilityUpdate = async (socket, data) => {
  */
 const handleRideRequest = async (socket, data) => {
   const passengerId = socket.user._id.toString();
-  const { pickupLocation, dropoffLocation, paymentMethod } = data;
+  const { pickupLocation, dropoffLocation, paymentMethod, vehicleType = 'motorcycle' } = data;
   
   // Validate required fields
   if (!pickupLocation || !dropoffLocation) {
@@ -553,6 +664,24 @@ const handleRideRequest = async (socket, data) => {
   }
   
   try {
+    // Calculate fare using the pricing engine
+    const fareResult = await pricingEngine.calculateFare({
+      origin: {
+        lat: pickupLocation.latitude,
+        lng: pickupLocation.longitude
+      },
+      destination: {
+        lat: dropoffLocation.latitude,
+        lng: dropoffLocation.longitude
+      },
+      vehicleType,
+      distanceType: 'roadDistance'
+    });
+    
+    if (!fareResult.success) {
+      return socket.emit('error', { message: 'Failed to calculate fare' });
+    }
+    
     // Create new ride in database
     const ride = new Ride({
       userId: mongoose.Types.ObjectId(passengerId),
@@ -572,21 +701,34 @@ const handleRideRequest = async (socket, data) => {
         }
       },
       fare: {
-        baseFare: data.baseFare || 0,
-        distanceFare: data.distanceFare || 0,
-        timeFare: data.timeFare || 0,
-        totalFare: data.estimatedFare || 0,
-        currency: 'NGN'
+        baseFare: fareResult.fare.baseFare,
+        distanceFare: fareResult.fare.distanceFare,
+        timeFare: fareResult.fare.timeFare,
+        serviceFee: fareResult.fare.serviceFee,
+        bookingFee: fareResult.fare.bookingFee,
+        totalFare: fareResult.fare.totalFare,
+        currency: fareResult.fare.currency || 'NGN',
+        multipliers: fareResult.fare.multipliers || { combined: 1.0 }
       },
-      estimatedDistance: data.estimatedDistance,
-      estimatedDuration: data.estimatedDuration,
+      estimatedDistance: fareResult.distance.value / 1000, // Convert to km
+      estimatedDuration: fareResult.duration.value / 60, // Convert to minutes
+      vehicleType,
       paymentMethod: paymentMethod || 'cash'
     });
     
     await ride.save();
     
-    // Find nearby available riders
-    const nearbyRiders = await findNearbyRiders(pickupLocation, 5); // 5km radius
+    // Find nearby available riders using the rider matching service
+    const matchResult = await riderMatching.findNearbyRiders({
+      location: {
+        lat: pickupLocation.latitude,
+        lng: pickupLocation.longitude
+      },
+      vehicleType,
+      maxDistance: 5000 // 5km radius
+    });
+    
+    const nearbyRiders = matchResult.success ? matchResult.riders.map(r => ({ _id: r.riderId })) : [];
     
     if (nearbyRiders.length === 0) {
       // No nearby riders available
@@ -993,17 +1135,47 @@ const handleNotificationRead = async (socket, data) => {
 };
 
 /**
- * Find nearby available riders
+ * Find nearby available riders (Legacy method - using enhanced rider matching service now)
  * @param {Object} location - Pickup location
  * @param {Number} radiusKm - Search radius in kilometers
- * @returns {Array} Array of nearby riders
+ * @returns {Promise<Array>} Array of nearby riders
  */
 const findNearbyRiders = async (location, radiusKm = 5) => {
   try {
-    // Convert radius from km to meters
+    // Try to use the enhanced rider matching service first
+    try {
+      const matchResult = await riderMatching.findNearbyRiders({
+        location: {
+          lat: location.latitude,
+          lng: location.longitude
+        },
+        maxDistance: radiusKm * 1000
+      });
+      
+      if (matchResult.success && matchResult.riders.length > 0) {
+        // Convert to compatible format
+        return matchResult.riders.map(rider => ({
+          _id: rider.riderId,
+          firstName: rider.name.split(' ')[0],
+          lastName: rider.name.split(' ').slice(1).join(' '),
+          phoneNumber: rider.phone,
+          profilePicture: rider.photo,
+          riderProfile: {
+            vehicleType: rider.vehicle.type,
+            vehicleModel: rider.vehicle.model,
+            licensePlate: rider.vehicle.plate,
+            averageRating: rider.rating
+          }
+        }));
+      }
+    } catch (matchError) {
+      console.error('Error using enhanced rider matching service:', matchError);
+      // Fall back to legacy method
+    }
+    
+    // Legacy method as fallback
     const radiusMeters = radiusKm * 1000;
     
-    // Find riders with active status and location within radius
     const nearbyRiders = await User.find({
       role: 'rider',
       'riderProfile.isActive': true,

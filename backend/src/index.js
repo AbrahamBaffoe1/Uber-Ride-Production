@@ -18,6 +18,9 @@ import { initializeSocketServer } from './services/socket.service.js';
 // MongoDB tracking services
 import { initializeTracking } from './services/real-time-tracking.service.js';
 import { initializeEnhancedTracking } from './services/enhanced-tracking.service.js';
+import * as realTimeAvailability from './services/real-time-availability.service.js';
+import * as pricingEngine from './services/pricing-engine.service.js';
+import * as riderMatching from './services/rider-matching.service.js';
 import { connectToRiderDB, connectToPassengerDB } from './config/mongodb.js';
 
 // Import routes with app-specific and shared routes
@@ -63,7 +66,7 @@ const io = new Server(server, {
 });
 const PORT = process.env.PORT || 3000;
 
-// Initialize Socket.IO service first (this is an async function)
+    // Initialize Socket.IO service first (this is an async function)
 (async () => {
   try {
     await initializeSocketServer(io);
@@ -82,6 +85,14 @@ const PORT = process.env.PORT || 3000;
       console.log('Enhanced tracking initialized successfully');
     } catch (error) {
       console.error('Failed to initialize enhanced tracking service:', error.message);
+    }
+    
+    // Initialize real-time availability service for rider density tracking
+    try {
+      await realTimeAvailability.initialize();
+      console.log('Real-time rider availability service initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize real-time availability service:', error.message);
     }
   } catch (error) {
     console.error('Failed to initialize Socket.IO:', error);
@@ -188,6 +199,20 @@ mongoose.set('autoIndex', process.env.NODE_ENV !== 'production'); // Don't auto-
         
         // Register all models on the connections
         registerModels(riderConnection, passengerConnection);
+        
+        // Initialize rider matching service
+        try {
+          console.log('Rider matching service is ready');
+        } catch (error) {
+          console.error('Error initializing rider matching service:', error);
+        }
+        
+        // Initialize price calculation engine
+        try {
+          console.log('Pricing engine service is ready');
+        } catch (error) {
+          console.error('Error initializing pricing engine:', error);
+        }
         
         // Skip admin user initialization for now to avoid blocking server startup
         console.log('Skipping admin user initialization to ensure server starts properly');
