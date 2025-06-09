@@ -1,0 +1,53 @@
+import express from 'express';
+import sharedRoutes from './shared/index.js';
+import passengerRoutes from './passenger/index.js';
+import riderRoutes from './rider/index.js';
+import rideOptionsRoutes from './ride-options.routes.js';
+import ridesRoutes from './rides.routes.js';
+import locationRoutes from './location.routes.js';
+import adminRoutes from './admin.routes.js';
+// OTP routes are imported and used in shared routes
+
+/**
+ * Set up and configure the application routes
+ * @param {Object} riderConnection - Mongoose connection to the rider database
+ * @param {Object} passengerConnection - Mongoose connection to the passenger database
+ * @returns {Promise<Object>} Express router with all routes configured
+ */
+const setupAppRoutes = async (riderConnection, passengerConnection) => {
+  const router = express.Router();
+
+  /**
+   * API Routes
+   */
+
+  // Shared routes - needs both connections
+  // This is an async function so we need to await it
+  const sharedRouter = await sharedRoutes(riderConnection, passengerConnection);
+  router.use('/', sharedRouter);
+
+  // Passenger-specific routes - needs passenger connection
+  router.use('/passenger', passengerRoutes(passengerConnection));
+
+  // Rider-specific routes - needs rider connection
+  router.use('/rider', riderRoutes(riderConnection));
+
+  // Ride options routes - this provides the missing endpoints used by the passenger app
+  router.use('/rides', rideOptionsRoutes);
+  
+  // Register the rides routes directly
+  router.use('/rides', ridesRoutes);
+  
+  // Register the location routes directly
+  router.use('/location', locationRoutes);
+  
+  // Register admin routes
+  router.use('/admin', adminRoutes);
+  
+  // OTP routes are already registered in shared routes
+  // Removed duplicate registration: router.use('/otp', otpRoutes);
+
+  return router;
+};
+
+export default setupAppRoutes;
