@@ -3,14 +3,26 @@
  * This file contains centralized configuration for the API endpoints
  */
 
+import { Platform } from 'react-native';
+
+// Helper function to get the correct localhost address based on platform
+const getLocalhost = () => {
+  if (Platform.OS === 'ios') {
+    return 'localhost'; // iOS simulator uses localhost
+  } else if (Platform.OS === 'android') {
+    return '10.0.2.2'; // Android emulator uses 10.0.2.2
+  }
+  return 'localhost'; // Default for web or other platforms
+};
+
 // Set the base URL for all API calls based on environment
 export const API_BASE_URL = __DEV__ 
-  ? 'http://10.0.2.2:3001/api/v1/mongo'  // Development backend URL using MongoDB with Android emulator localhost
+  ? `http://${getLocalhost()}:3001/api/v1/mongo`  // Development backend URL using MongoDB
   : 'https://api.okada-transportation.com/api/v1/mongo'; // Production MongoDB URL
 
 // WebSocket URL for real-time communication
 export const SOCKET_URL = __DEV__
-  ? 'http://10.0.2.2:3001'
+  ? `http://${getLocalhost()}:3001`
   : 'https://api.okada-transportation.com';
 
 // API endpoint paths organized by feature

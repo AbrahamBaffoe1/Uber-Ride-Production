@@ -146,9 +146,15 @@ class SocketService {
     try {
       // Get authentication token
       const token = await AsyncStorage.getItem('auth_token');
+      
+      // Don't connect if no token is available (user not authenticated)
       if (!token) {
-        throw new Error('Authentication token not found');
+        console.log('Socket initialization skipped: No authentication token found');
+        this.connecting = false;
+        return;
       }
+
+      console.log('Initializing socket connection to:', SOCKET_URL);
 
       // Initialize socket connection
       this.socket = io(SOCKET_URL, {
@@ -174,9 +180,10 @@ class SocketService {
       
       this.reconnectAttempts = 0;
     } catch (error) {
-      console.error('Failed to initialize socket:', error);
+      console.error('Failed to initialize socket connection:', error);
       this.connecting = false;
-      throw error;
+      // Don't throw error - just log it
+      // This prevents app crashes when backend is not running
     }
   }
 
