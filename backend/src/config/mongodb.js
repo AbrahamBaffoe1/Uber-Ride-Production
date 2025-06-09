@@ -48,11 +48,13 @@ const cloudMongooseOptions = {
   tls: true,
   tlsAllowInvalidCertificates: false,
   tlsAllowInvalidHostnames: false,
-  // Additional driver options
-  driverOptions: {
-    serverApi: { version: '1' },
-    monitorCommands: true
-  }
+  // Server API version configuration
+  serverApi: {
+    version: '1',
+    strict: true,
+    deprecationErrors: true
+  },
+  monitorCommands: true
 };
 
 // Local connection options don't need SSL/TLS
@@ -65,11 +67,13 @@ const localMongooseOptions = {
   minPoolSize: 5,
   maxIdleTimeMS: 60000,
   waitQueueTimeoutMS: TIMEOUT_VALUES.BUFFER_TIMEOUT_MS,
-  // Additional driver options
-  driverOptions: {
-    serverApi: { version: '1' },
-    monitorCommands: true
-  }
+  // Server API version configuration
+  serverApi: {
+    version: '1',
+    strict: true,
+    deprecationErrors: true
+  },
+  monitorCommands: true
 };
 
 // MongoDB client options

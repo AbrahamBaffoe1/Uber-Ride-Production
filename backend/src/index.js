@@ -8,6 +8,7 @@ import http from 'http';
 import { Server } from 'socket.io';
 import { rateLimit } from 'express-rate-limit';
 import { swaggerUi, specs } from './swagger.js';
+import mongoose from 'mongoose';
 
 // MongoDB-only configuration - PostgreSQL has been removed
 
