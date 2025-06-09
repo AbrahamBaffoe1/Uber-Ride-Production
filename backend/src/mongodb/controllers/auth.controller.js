@@ -414,17 +414,25 @@ export const requestPublicOTP = async (req, res) => {
  */
 export const resetPasswordRequest = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, identifier } = req.body;
     
-    if (!email) {
+    // Allow either email or identifier (phone or email)
+    const contactInfo = identifier || email;
+    
+    if (!contactInfo) {
       return res.status(400).json({
         status: 'error',
-        message: 'Email is required'
+        message: 'Email or phone number is required'
       });
     }
     
-    // Find user by email
-    const user = await User.findOne({ email: email.toLowerCase() });
+    // Check if email format or phone format
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactInfo);
+    
+    // Find user by email or phone
+    const user = await User.findOne({
+      [isEmail ? 'email' : 'phoneNumber']: isEmail ? contactInfo.toLowerCase() : contactInfo
+    });
     
     if (!user) {
       return res.status(404).json({
@@ -434,12 +442,12 @@ export const resetPasswordRequest = async (req, res) => {
     }
     
     // Generate and send OTP
-    const result = await otpService.sendPasswordResetOTP(user._id.toString(), email);
+    const result = await otpService.requestOTP(user._id.toString(), contactInfo, 'passwordReset');
     
-    // Return success
+    // Return success with appropriate message
     return res.status(200).json({
       status: 'success',
-      message: 'Password reset code sent to your email',
+      message: `Password reset code sent to your ${isEmail ? 'email' : 'phone'}`,
       data: {
         userId: user._id,
         expiresAt: result.expiresAt

@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 import * as pricingEngine from '../../services/pricing-engine.service.js';
 import * as riderMatching from '../../services/rider-matching.service.js';
 import * as realTimeAvailability from '../../services/real-time-availability.service.js';
-import { authenticate as authenticateToken } from '../../middleware/auth.js';
+import { authenticate } from '../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -75,7 +75,7 @@ const router = express.Router();
  *       500:
  *         description: Server error
  */
-router.post('/estimate', authenticateToken, async (req, res) => {
+router.post('/estimate', authenticate, async (req, res) => {
   try {
     const { origin, destination, vehicleType = 'motorcycle', distanceType = 'roadDistance' } = req.body;
     
@@ -99,12 +99,13 @@ router.post('/estimate', authenticateToken, async (req, res) => {
       lng: destination.longitude
     };
     
-    // Get fare estimate
+    // Get fare estimate with user's preferred currency if available
     const fareEstimate = await pricingEngine.calculateFare({
       origin: originCoords,
       destination: destinationCoords,
       vehicleType,
-      distanceType
+      distanceType,
+      userId: req.user.id // Pass user ID for currency preference
     });
     
     // Check for availability
@@ -180,7 +181,7 @@ router.post('/estimate', authenticateToken, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/availability', authenticateToken, async (req, res) => {
+router.get('/availability', authenticate, async (req, res) => {
   try {
     const { latitude, longitude, vehicleType } = req.query;
     
@@ -260,7 +261,7 @@ router.get('/availability', authenticateToken, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/density-map', authenticateToken, async (req, res) => {
+router.get('/density-map', authenticate, async (req, res) => {
   try {
     const { latitude, longitude, radius = 5 } = req.query;
     
@@ -347,7 +348,7 @@ router.get('/density-map', authenticateToken, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/nearby-riders', authenticateToken, async (req, res) => {
+router.get('/nearby-riders', authenticate, async (req, res) => {
   try {
     const { latitude, longitude, maxDistance, vehicleType } = req.query;
     
@@ -429,7 +430,7 @@ router.get('/nearby-riders', authenticateToken, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.post('/calculate-eta', authenticateToken, async (req, res) => {
+router.post('/calculate-eta', authenticate, async (req, res) => {
   try {
     const { origin, destination } = req.body;
     

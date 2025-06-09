@@ -36,6 +36,18 @@ const userSchema = new mongoose.Schema({
     unique: true,
     trim: true
   },
+  country: {
+    type: String,
+    default: 'NG',  // Default to Nigeria
+    trim: true,
+    uppercase: true
+  },
+  preferredCurrency: {
+    type: String,
+    default: null, // Will be derived from country if null
+    trim: true,
+    uppercase: true
+  },
   password: {
     type: String,
     required: [true, 'Password is required'],
@@ -152,6 +164,9 @@ const userSchema = new mongoose.Schema({
 // so we don't need to explicitly define indexes for email and phoneNumber
 userSchema.index({ status: 1 });
 
+// Import for country-to-currency mapping
+import { getCurrencyForCountry } from '../../services/currency.service.js';
+
 // Pre-save hook to hash password
 userSchema.pre('save', async function(next) {
   // Only hash the password if it's modified (or new)
@@ -166,6 +181,20 @@ userSchema.pre('save', async function(next) {
   } catch (error) {
     next(error);
   }
+});
+
+// Pre-save hook to set preferred currency based on country if not explicitly set
+userSchema.pre('save', function(next) {
+  // If country is set but preferred currency is not, derive it from country
+  if (this.country && !this.preferredCurrency) {
+    try {
+      this.preferredCurrency = getCurrencyForCountry(this.country);
+    } catch (error) {
+      console.error('Error setting preferred currency:', error);
+      // Continue without setting currency - will use default in services
+    }
+  }
+  next();
 });
 
 // Method to compare passwords

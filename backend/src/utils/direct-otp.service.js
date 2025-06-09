@@ -279,8 +279,9 @@ class DirectOtpService {
           emailResult = await emailService.sendPasswordResetEmail(email, otpData.code);
           break;
         default:
-          // For other types, use the basic sendEmail
-          emailResult = await emailService.sendEmail(email, subject, textContent);
+      // For other types, use the basic sendEmail
+      // Make sure to pass text content as separate parameter, not as object
+      emailResult = await emailService.sendEmail(email, subject, textContent);
       }
       
       // Track successful OTP delivery

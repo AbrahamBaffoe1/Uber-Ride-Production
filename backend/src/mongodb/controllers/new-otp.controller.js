@@ -6,21 +6,31 @@ import * as otpAuthService from '../services/otp-auth.service.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
 import { ObjectId } from 'mongodb';
-import { getRiderDb } from '../../utils/mongo-client.js';
+import { getRiderDb, getPassengerDb } from '../../utils/mongo-client.js';
 
 /**
- * Request OTP generation and send via email
+ * Request OTP generation and send via email or SMS
  * @route POST /api/v1/mongo/otp/request
  */
 export const requestOTP = async (req, res) => {
   try {
     console.log("OTP request received:", req.body);
-    const { userId, email } = req.body;
+    const { userId, email, phoneNumber, channel } = req.body;
+    
+    // Determine contact info based on channel or provided parameters
+    let contactInfo;
+    if (channel === 'email') {
+      contactInfo = email;
+    } else if (channel === 'sms') {
+      contactInfo = phoneNumber;
+    } else {
+      contactInfo = email || phoneNumber;
+    }
 
-    if (!userId || !email) {
+    if (!userId || !contactInfo) {
       return res.status(400).json({ 
         success: false, 
-        message: 'UserId and email are required' 
+        message: 'UserId and either email or phoneNumber are required' 
       });
     }
 
@@ -35,14 +45,25 @@ export const requestOTP = async (req, res) => {
     // Check if user exists - use direct MongoDB connection to avoid Mongoose timeout
     let user;
     try {
-      const db = await getRiderDb();
-      user = await db.collection('users').findOne({ _id: new ObjectId(userId) });
+      // First check rider database
+      const riderDb = await getRiderDb();
+      user = await riderDb.collection('users').findOne({ _id: new ObjectId(userId) });
       
+      // If not found in rider DB, check passenger database
       if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found in rider database'
-        });
+        console.log(`User ${userId} not found in rider database, checking passenger database...`);
+        const passengerDb = await getPassengerDb();
+        user = await passengerDb.collection('users').findOne({ _id: new ObjectId(userId) });
+        
+        if (!user) {
+          return res.status(404).json({
+            success: false,
+            message: 'User not found in either rider or passenger database'
+          });
+        }
+        console.log(`User found in passenger database`);
+      } else {
+        console.log(`User found in rider database`);
       }
     } catch (dbError) {
       console.error('Error accessing MongoDB directly:', dbError);
@@ -51,12 +72,15 @@ export const requestOTP = async (req, res) => {
     }
 
     // Request OTP generation and sending
-    const result = await otpAuthService.requestOTP(userId, email);
+    const result = await otpAuthService.requestOTP(userId, contactInfo);
     console.log('OTP generation result:', result);
+
+    // Determine if it's an email or phone number
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactInfo);
 
     return res.status(200).json({
       success: true,
-      message: 'OTP sent successfully to your email',
+      message: `OTP sent successfully to your ${isEmail ? 'email' : 'phone'}`,
       data: {
         expiresAt: result.expiresAt
       }
@@ -138,12 +162,34 @@ export const resendOTP = async (req, res) => {
       });
     }
 
-    // Check if user exists
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
+    // Check if user exists - use direct MongoDB connection to avoid Mongoose timeout
+    let user;
+    try {
+      // First check rider database
+      const riderDb = await getRiderDb();
+      user = await riderDb.collection('users').findOne({ _id: new ObjectId(userId) });
+      
+      // If not found in rider DB, check passenger database
+      if (!user) {
+        console.log(`User ${userId} not found in rider database, checking passenger database...`);
+        const passengerDb = await getPassengerDb();
+        user = await passengerDb.collection('users').findOne({ _id: new ObjectId(userId) });
+        
+        if (!user) {
+          return res.status(404).json({
+            success: false,
+            message: 'User not found in either rider or passenger database'
+          });
+        }
+        console.log(`User found in passenger database`);
+      } else {
+        console.log(`User found in rider database`);
+      }
+    } catch (dbError) {
+      console.error('Error accessing MongoDB directly:', dbError);
+      return res.status(500).json({
         success: false,
-        message: 'User not found'
+        message: 'Database error while checking user'
       });
     }
 
@@ -190,12 +236,38 @@ export const passwordResetRequest = async (req, res) => {
       });
     }
 
-    // Find user by email
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user) {
-      return res.status(404).json({
+    // Find user by email in both databases
+    let user;
+    try {
+      // First check rider database
+      const riderDb = await getRiderDb();
+      user = await riderDb.collection('users').findOne({ 
+        email: email.toLowerCase() 
+      });
+      
+      // If not found in rider DB, check passenger database
+      if (!user) {
+        console.log(`User with email ${email} not found in rider database, checking passenger database...`);
+        const passengerDb = await getPassengerDb();
+        user = await passengerDb.collection('users').findOne({ 
+          email: email.toLowerCase() 
+        });
+        
+        if (!user) {
+          return res.status(404).json({
+            success: false,
+            message: 'User not found with this email in either rider or passenger database'
+          });
+        }
+        console.log(`User found in passenger database`);
+      } else {
+        console.log(`User found in rider database`);
+      }
+    } catch (dbError) {
+      console.error('Error accessing MongoDB directly:', dbError);
+      return res.status(500).json({
         success: false,
-        message: 'User not found'
+        message: 'Database error while checking user'
       });
     }
 
@@ -329,12 +401,34 @@ export const loginVerification = async (req, res) => {
       });
     }
 
-    // Check if user exists
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
+    // Check if user exists - use direct MongoDB connection to avoid Mongoose timeout
+    let user;
+    try {
+      // First check rider database
+      const riderDb = await getRiderDb();
+      user = await riderDb.collection('users').findOne({ _id: new ObjectId(userId) });
+      
+      // If not found in rider DB, check passenger database
+      if (!user) {
+        console.log(`User ${userId} not found in rider database, checking passenger database...`);
+        const passengerDb = await getPassengerDb();
+        user = await passengerDb.collection('users').findOne({ _id: new ObjectId(userId) });
+        
+        if (!user) {
+          return res.status(404).json({
+            success: false,
+            message: 'User not found in either rider or passenger database'
+          });
+        }
+        console.log(`User found in passenger database`);
+      } else {
+        console.log(`User found in rider database`);
+      }
+    } catch (dbError) {
+      console.error('Error accessing MongoDB directly:', dbError);
+      return res.status(500).json({
         success: false,
-        message: 'User not found'
+        message: 'Database error while checking user'
       });
     }
 

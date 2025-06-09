@@ -308,4 +308,54 @@ router.put('/settings/2fa', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * @route PUT /api/v1/mongo/users/preferences/currency
+ * @desc Update user's preferred currency
+ * @access Private
+ */
+router.put('/preferences/currency', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { currencyCode } = req.body;
+    
+    if (!currencyCode) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Currency code is required'
+      });
+    }
+    
+    // Update user's preferred currency
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { 
+        preferredCurrency: currencyCode.toUpperCase(),
+        updatedAt: new Date()
+      },
+      { new: true }
+    ).select('preferredCurrency');
+    
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+    
+    return res.status(200).json({
+      status: 'success',
+      message: 'Currency preference updated successfully',
+      data: {
+        preferredCurrency: user.preferredCurrency
+      }
+    });
+  } catch (error) {
+    console.error('Error updating currency preference:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to update currency preference'
+    });
+  }
+});
+
 export default router;

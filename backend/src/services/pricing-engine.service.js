@@ -4,6 +4,7 @@
  */
 import mongoose from 'mongoose';
 import mapsService from './maps.service.js';
+import * as currencyService from './currency.service.js';
 
 // Try to load models dynamically to avoid circular dependencies
 let RiderLocation, Ride, User;
@@ -25,29 +26,33 @@ const importModels = async () => {
 
 // Base pricing configurations
 const DEFAULT_PRICING = {
-  // Base pricing (NGN)
+  // Base pricing (NGN) - Updated for Nigerian market
   base: {
-    motorcycle: 300,
-    car: 500,
-    tricycle: 350
+    motorcycle: 200,    // Okada base fare
+    car: 800,          // Standard car base fare
+    tricycle: 400,     // Keke NAPEP base fare
+    bicycle: 150       // Bicycle base fare
   },
-  // Per kilometer rate (NGN)
+  // Per kilometer rate (NGN) - Based on Nigerian fuel costs and local rates
   perKm: {
-    motorcycle: 80,
-    car: 120,
-    tricycle: 100
+    motorcycle: 60,    // ₦60 per km for motorcycle
+    car: 100,         // ₦100 per km for car
+    tricycle: 80,     // ₦80 per km for tricycle
+    bicycle: 40       // ₦40 per km for bicycle
   },
-  // Per minute rate (NGN)
+  // Per minute rate (NGN) - Waiting time charges
   perMinute: {
-    motorcycle: 5,
-    car: 8,
-    tricycle: 6
+    motorcycle: 8,    // ₦8 per minute waiting
+    car: 15,         // ₦15 per minute waiting
+    tricycle: 12,    // ₦12 per minute waiting
+    bicycle: 5       // ₦5 per minute waiting
   },
-  // Minimum fare (NGN)
+  // Minimum fare (NGN) - Ensures drivers get reasonable compensation
   minimum: {
-    motorcycle: 500,
-    car: 800,
-    tricycle: 600
+    motorcycle: 300,  // Minimum ₦300 for motorcycle rides
+    car: 1000,       // Minimum ₦1000 for car rides
+    tricycle: 500,   // Minimum ₦500 for tricycle rides
+    bicycle: 200     // Minimum ₦200 for bicycle rides
   },
   // Service fee (NGN)
   serviceFee: {
@@ -129,6 +134,8 @@ const DISTANCE_TYPE_WEIGHTS = {
  * @param {Date} params.dateTime Optional ride date/time for estimation (defaults to now)
  * @param {string} params.distanceType Distance calculation type (straightLine, roadDistance, trafficAware)
  * @param {Object} params.customPricing Optional custom pricing override
+ * @param {string} params.userId Optional userId to determine preferred currency
+ * @param {string} params.currencyCode Optional specific currency code to use
  * @returns {Promise<Object>} Fare details
  */
 const calculateFare = async (params) => {
@@ -141,8 +148,29 @@ const calculateFare = async (params) => {
       vehicleType = 'motorcycle',
       dateTime = new Date(),
       distanceType = 'roadDistance',
-      customPricing = null
+      customPricing = null,
+      userId = null,
+      currencyCode = null
     } = params;
+    
+    // Determine user's preferred currency
+    let userCurrency = currencyService.DEFAULT_CURRENCY; // Default to NGN
+    let user = null;
+    
+    if (userId) {
+      try {
+        user = await User.findById(userId);
+        if (user) {
+          userCurrency = currencyService.getUserCurrency(user);
+        }
+      } catch (error) {
+        console.error('Error fetching user currency preference:', error);
+        // Continue with default currency
+      }
+    } else if (currencyCode) {
+      // If currency code is explicitly provided, use that
+      userCurrency = currencyCode.toUpperCase();
+    }
     
     // Validate inputs
     if (!origin || !origin.lat || !origin.lng) {
@@ -235,8 +263,75 @@ const calculateFare = async (params) => {
     // Step 11: Add fees
     const totalFare = fareBeforeFees + serviceFee + bookingFee;
     
-    // Step 12: Round to nearest whole number (NGN)
+    // Step 12: Round to nearest whole number
     const roundedFare = Math.ceil(totalFare);
+    
+    // Step 13: Currency conversion if needed
+    let convertedFare = null;
+    
+    if (userCurrency !== currencyService.DEFAULT_CURRENCY) {
+      try {
+        // Convert fare components to user's preferred currency
+        const convertedBaseFare = await currencyService.convertCurrency(
+          baseFare, 
+          currencyService.DEFAULT_CURRENCY, 
+          userCurrency
+        );
+        
+        const convertedDistanceFare = await currencyService.convertCurrency(
+          distanceFare * combinedMultiplier, 
+          currencyService.DEFAULT_CURRENCY, 
+          userCurrency
+        );
+        
+        const convertedTimeFare = await currencyService.convertCurrency(
+          timeFare * combinedMultiplier, 
+          currencyService.DEFAULT_CURRENCY, 
+          userCurrency
+        );
+        
+        const convertedSubtotal = await currencyService.convertCurrency(
+          fareBeforeFees, 
+          currencyService.DEFAULT_CURRENCY, 
+          userCurrency
+        );
+        
+        const convertedServiceFee = await currencyService.convertCurrency(
+          serviceFee, 
+          currencyService.DEFAULT_CURRENCY, 
+          userCurrency
+        );
+        
+        const convertedBookingFee = await currencyService.convertCurrency(
+          bookingFee, 
+          currencyService.DEFAULT_CURRENCY, 
+          userCurrency
+        );
+        
+        const convertedTotalFare = await currencyService.convertCurrency(
+          roundedFare, 
+          currencyService.DEFAULT_CURRENCY, 
+          userCurrency
+        );
+        
+        // Create converted fare object
+        convertedFare = {
+          baseFare: Math.ceil(convertedBaseFare),
+          distanceFare: Math.ceil(convertedDistanceFare),
+          timeFare: Math.ceil(convertedTimeFare),
+          subtotal: Math.ceil(convertedSubtotal),
+          serviceFee: Math.ceil(convertedServiceFee),
+          bookingFee: Math.ceil(convertedBookingFee),
+          totalFare: Math.ceil(convertedTotalFare),
+          currency: userCurrency,
+          symbol: currencyService.getCurrencySymbol(userCurrency),
+          formattedTotal: currencyService.formatCurrency(convertedTotalFare, userCurrency)
+        };
+      } catch (error) {
+        console.error('Error converting currency:', error);
+        // Continue with original NGN fare if conversion fails
+      }
+    }
     
     return {
       success: true,
@@ -248,7 +343,9 @@ const calculateFare = async (params) => {
         serviceFee,
         bookingFee,
         totalFare: roundedFare,
-        currency: 'NGN',
+        currency: currencyService.DEFAULT_CURRENCY,
+        symbol: currencyService.getCurrencySymbol(currencyService.DEFAULT_CURRENCY),
+        formattedTotal: currencyService.formatCurrency(roundedFare, currencyService.DEFAULT_CURRENCY),
         multipliers: {
           time: timeMultiplier,
           demand: demandMultiplier,
@@ -257,6 +354,7 @@ const calculateFare = async (params) => {
           combined: combinedMultiplier
         }
       },
+      convertedFare, // This will be null if no conversion was performed or requested
       distance: {
         value: distanceDetails.distance.value,
         text: distanceDetails.distance.text,

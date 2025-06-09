@@ -4,7 +4,8 @@
  */
 import OTPModel from '../models/OTP.js';
 import User from '../models/User.js';
-import { sendEmail } from '../../services/email.service.js';
+import * as emailService from '../../services/email.service.js';
+import * as smsService from '../../services/twilio-sms.service.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
@@ -20,11 +21,11 @@ const generateOTP = () => {
 };
 
 /**
- * Request OTP generation and send via email
+ * Request OTP generation and send via email or SMS
  */
-export const requestOTP = async (userId, email, type = 'verification') => {
+export const requestOTP = async (userId, contactInfo, type = 'verification') => {
   try {
-    console.log(`Generating OTP for user ${userId}, email: ${email}, type: ${type}`);
+    console.log(`Generating OTP for user ${userId}, contact: ${contactInfo}, type: ${type}`);
     
     // Check for existing OTP and cooldown
     const existingOTP = await OTPModel.findOne({ 
@@ -40,6 +41,10 @@ export const requestOTP = async (userId, email, type = 'verification') => {
         message: `Please wait ${waitTime} seconds before requesting a new OTP`
       };
     }
+    
+    // Determine if it's an email or phone number
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactInfo);
+    const channel = isEmail ? 'email' : 'sms';
 
     // Generate new OTP
     const otp = generateOTP();
@@ -54,35 +59,43 @@ export const requestOTP = async (userId, email, type = 'verification') => {
       attempts: 0
     });
 
-    // Send OTP via email
-    const emailSubject = type === 'password_reset' 
-      ? 'Password Reset OTP - Okada Transportation'
-      : 'Verification OTP - Okada Transportation';
-    
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #333;">Your One-Time Password (OTP)</h2>
-        <p>Hello,</p>
-        <p>Your OTP code is:</p>
-        <div style="background-color: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-          ${otp}
+    // Send OTP based on channel type
+    if (channel === 'email') {
+      const emailSubject = type === 'passwordReset' 
+        ? 'Password Reset OTP - Okada Transportation'
+        : 'Verification OTP - Okada Transportation';
+      
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">Your One-Time Password (OTP)</h2>
+          <p>Hello,</p>
+          <p>Your OTP code is:</p>
+          <div style="background-color: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+            ${otp}
+          </div>
+          <p>This code will expire in ${OTP_EXPIRY_MINUTES} minutes.</p>
+          <p>If you didn't request this code, please ignore this email.</p>
+          <hr style="margin: 30px 0;">
+          <p style="color: #666; font-size: 12px;">
+            This is an automated message from Okada Transportation. Please do not reply to this email.
+          </p>
         </div>
-        <p>This code will expire in ${OTP_EXPIRY_MINUTES} minutes.</p>
-        <p>If you didn't request this code, please ignore this email.</p>
-        <hr style="margin: 30px 0;">
-        <p style="color: #666; font-size: 12px;">
-          This is an automated message from Okada Transportation. Please do not reply to this email.
-        </p>
-      </div>
-    `;
+      `;
 
-    await sendEmail({
-      to: email,
-      subject: emailSubject,
-      html: emailHtml
-    });
+      // Create a plain text version of the message
+      const emailText = `Your OTP code is: ${otp}
+This code will expire in ${OTP_EXPIRY_MINUTES} minutes.
+If you didn't request this code, please ignore this email.`;
 
-    console.log(`OTP sent successfully to ${email}`);
+      // Send email using the email service
+      await emailService.sendEmail(contactInfo, emailSubject, emailText, emailHtml);
+      console.log(`OTP sent successfully to email: ${contactInfo}`);
+    } else {
+      // Send via SMS
+      const smsMessage = `Your ${type === 'passwordReset' ? 'password reset' : 'verification'} code is: ${otp}. Valid for ${OTP_EXPIRY_MINUTES} minutes. Do not share with anyone.`;
+      await smsService.sendSMS(contactInfo, smsMessage);
+      console.log(`OTP sent successfully to phone: ${contactInfo}`);
+    }
 
     return {
       success: true,
