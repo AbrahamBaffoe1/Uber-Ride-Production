@@ -7,6 +7,9 @@ import User from './User.js';
 import Ride from './Ride.js';
 import Notification from './Notification.js';
 import TrackingEvent from './TrackingEvent.js';
+import SupportTicket from './SupportTicket.js';
+import FAQ from './FAQ.js';
+import Rating from './Rating.js';
 
 /**
  * Register models on the appropriate connections
@@ -49,6 +52,26 @@ export const registerModels = (riderConnection, passengerConnection) => {
     }
     if (!passengerConnection.models.Notification) {
       passengerConnection.model('Notification', Notification.schema);
+    }
+    if (!passengerConnection.models.SupportTicket) {
+      passengerConnection.model('SupportTicket', SupportTicket);
+    }
+    if (!passengerConnection.models.FAQ) {
+      passengerConnection.model('FAQ', FAQ);
+    }
+    if (!passengerConnection.models.Rating) {
+      passengerConnection.model('Rating', Rating);
+    }
+    
+    // Also register support models on rider connection
+    if (!riderConnection.models.SupportTicket) {
+      riderConnection.model('SupportTicket', SupportTicket);
+    }
+    if (!riderConnection.models.FAQ) {
+      riderConnection.model('FAQ', FAQ);
+    }
+    if (!riderConnection.models.Rating) {
+      riderConnection.model('Rating', Rating);
     }
 
     console.log('All models registered successfully on database connections');

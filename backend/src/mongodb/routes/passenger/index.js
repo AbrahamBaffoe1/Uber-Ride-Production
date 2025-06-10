@@ -5,6 +5,9 @@
 import express from 'express';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { hasAnyRole } from '../../middlewares/role.middleware.js';
+import helpSupportRoutes from './help-support.routes.js';
+import ratingRoutes from './rating.routes.js';
+import profileRoutes from './profile.routes.js';
 
 /**
  * Create passenger routes with specific passenger database connection
@@ -19,6 +22,16 @@ export default function(passengerConnection) {
   const Ride = passengerConnection.model('Ride');
   const SavedLocation = passengerConnection.model('SavedLocation');
 
+  // Import sub-routes
+  const helpSupport = helpSupportRoutes(passengerConnection);
+  const ratings = ratingRoutes(passengerConnection);
+  const profile = profileRoutes(passengerConnection);
+  
+  // Register sub-routes
+  router.use('/support', helpSupport);
+  router.use('/ratings', ratings);
+  router.use('/profile', profile);
+  
   // Define passenger-specific routes
 
   /**
