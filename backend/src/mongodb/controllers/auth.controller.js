@@ -74,8 +74,10 @@ export const register = async (req, res) => {
     
     // Generate and send verification OTP
     try {
-      await otpService.requestOTP(user._id.toString(), email || phoneNumber, 'verification');
-      console.log('OTP sent successfully during registration');
+      // Send OTP to either email or phone number, whichever was provided
+      const contactInfo = email || phoneNumber;
+      await otpService.requestOTP(user._id.toString(), contactInfo, 'verification');
+      console.log('OTP sent successfully during registration to:', contactInfo);
     } catch (otpError) {
       console.error('Error sending OTP during registration:', otpError);
       // Continue with registration even if OTP sending fails
@@ -140,9 +142,9 @@ export const verifyUser = async (req, res) => {
     }
     
     // Verify OTP using the service
-    const isVerified = await otpService.verifyOTP(userId, code, type);
+    const verificationResult = await otpService.verifyOTP(userId, code, type);
     
-    if (!isVerified) {
+    if (!verificationResult || !verificationResult.success) {
       return res.status(400).json({
         status: 'error',
         message: 'Invalid or expired verification code'
@@ -480,9 +482,9 @@ export const resetPassword = async (req, res) => {
     }
     
     // Verify OTP
-    const isValid = await otpService.verifyOTP(userId, code, 'passwordReset');
+    const verificationResult = await otpService.verifyOTP(userId, code, 'passwordReset');
     
-    if (!isValid) {
+    if (!verificationResult || !verificationResult.success) {
       return res.status(400).json({
         status: 'error',
         message: 'Invalid or expired verification code'

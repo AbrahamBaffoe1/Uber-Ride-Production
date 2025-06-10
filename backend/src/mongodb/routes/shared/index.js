@@ -6,7 +6,8 @@ import express from 'express';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { hasAnyRole } from '../../middlewares/role.middleware.js';
 import authRoutes from '../auth.routes.js';
-import otpRoutes from '../new-otp.routes.js';
+import otpRoutes from '../otp.routes.js';
+import newOtpRoutes from '../new-otp.routes.js';
 
 /**
  * Create shared routes with connections to both databases
@@ -20,6 +21,7 @@ const createSharedRoutes = async (riderConnection, passengerConnection) => {
   // Directly mount auth and OTP routes
   router.use('/auth', authRoutes);
   router.use('/otp', otpRoutes);
+  router.use('/new-otp', newOtpRoutes);
 
   // Register models with appropriate connections
   // Import models dynamically

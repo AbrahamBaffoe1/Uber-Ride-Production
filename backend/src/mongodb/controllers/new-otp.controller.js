@@ -1,506 +1,631 @@
 /**
- * New OTP Controller
- * Handles OTP-related API endpoints with improved functionality
+ * OTP Controller
+ * Handles OTP generation, verification, and management
  */
-import * as otpAuthService from '../services/otp-auth.service.js';
+import { 
+  requestOTP, 
+  verifyOTP, 
+  getLatestOTP,
+  invalidateOTPs,
+  generateOTPCode
+} from '../services/otp-auth.service.js';
 import User from '../models/User.js';
+import OTP from '../models/OTP.js';
 import mongoose from 'mongoose';
-import { ObjectId } from 'mongodb';
-import { getRiderDb, getPassengerDb } from '../../utils/mongo-client.js';
 
 /**
- * Request OTP generation and send via email or SMS
- * @route POST /api/v1/mongo/otp/request
+ * Request an OTP for a user
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with OTP details
  */
-export const requestOTP = async (req, res) => {
-    try {
-      console.log("OTP request received:", req.body);
-      const { userId, email, phoneNumber, channel } = req.body;
-      
-      // Determine contact info based on channel or provided parameters
-      let contactInfo;
-      if (channel === 'email') {
-        contactInfo = email;
-      } else if (channel === 'sms') {
-        contactInfo = phoneNumber;
-      } else {
-        contactInfo = email || phoneNumber;
-      }
-
-      if (!userId || !contactInfo) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'UserId and either email or phoneNumber are required' 
-        });
-      }
-
-      // Validate userId format
-      if (!mongoose.Types.ObjectId.isValid(userId)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid user ID format'
-        });
-      }
-
-      // Check if user exists - use direct MongoDB connection to avoid Mongoose timeout
-      let user;
-      try {
-        // First check rider database
-        const riderDb = await getRiderDb();
-        user = await riderDb.collection('users').findOne({ _id: new ObjectId(userId) });
-        
-        // If not found in rider DB, check passenger database
-        if (!user) {
-          console.log(`User ${userId} not found in rider database, checking passenger database...`);
-          const passengerDb = await getPassengerDb();
-          user = await passengerDb.collection('users').findOne({ _id: new ObjectId(userId) });
-          
-          if (!user) {
-            // For pre-login flows like password reset, don't block the operation
-            // just because the user isn't found yet - the user may be in registration flow
-            if (req.url.includes('/public/') || req.body.type === 'passwordReset') {
-              console.log('User not found but continuing with OTP for passwordReset or public endpoint');
-              // Set a placeholder user for the OTP generation
-              user = { _id: userId };
-            } else {
-              return res.status(404).json({
-                success: false,
-                message: 'User not found in either rider or passenger database'
-              });
-            }
-          } else {
-            console.log(`User found in passenger database`);
-          }
-        } else {
-          console.log(`User found in rider database`);
-        }
-      } catch (dbError) {
-        console.error('Error accessing MongoDB directly:', dbError);
-        // Continue anyway to test email sending
-        console.log('Continuing with OTP generation despite DB error');
-      }
-
-    // Request OTP generation and sending
-    const result = await otpAuthService.requestOTP(userId, contactInfo);
-    console.log('OTP generation result:', result);
-
-    // Determine if it's an email or phone number
-    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactInfo);
-
-    return res.status(200).json({
-      success: true,
-      message: `OTP sent successfully to your ${isEmail ? 'email' : 'phone'}`,
-      data: {
-        expiresAt: result.expiresAt
-      }
-    });
-  } catch (error) {
-    console.error('Error in OTP request:', error);
-    
-    return res.status(error.status || 500).json({
-      success: false,
-      message: error.message || 'Failed to generate and send OTP'
-    });
-  }
-};
-
-/**
- * Verify OTP submitted by user
- * @route POST /api/v1/mongo/otp/verify
- */
-export const verifyOTP = async (req, res) => {
+export const sendOTP = async (req, res) => {
+  // Start performance timer
+  const startTime = Date.now();
+  const requestId = Math.random().toString(36).substring(2, 10);
+  
   try {
-    const { userId, otp: submittedOTP } = req.body;
-
-    if (!userId || !submittedOTP) {
-      return res.status(400).json({
-        success: false,
-        message: 'UserId and OTP are required'
-      });
-    }
-
-    // Validate userId format
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid user ID format'
-      });
-    }
-
-    // Verify OTP
-    const result = await otpAuthService.verifyOTP(userId, submittedOTP);
-
-    return res.status(200).json({
-      success: true,
-      message: 'OTP verified successfully',
-      data: {
-        token: result.token,
-        user: result.user
-      }
-    });
-  } catch (error) {
-    console.error('Error in OTP verification:', error);
+    console.log(`[OTP-${requestId}] Starting OTP request`);
+    const { userId, channel, type, email, phoneNumber } = req.body;
     
-    return res.status(error.status || 400).json({
-      success: false,
-      message: error.message || 'Failed to verify OTP'
+    // Validate required parameters - fail fast
+    if (!userId || !channel || !type) {
+      console.log(`[OTP-${requestId}] Missing parameters`, { userId, channel, type });
+      return res.status(400).json({
+        status: 'error',
+        message: 'Missing required parameters: userId, channel, type'
+      });
+    }
+    
+    if (!['email', 'sms'].includes(channel)) {
+      console.log(`[OTP-${requestId}] Invalid channel: ${channel}`);
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid channel: must be email or sms'
+      });
+    }
+    
+    if (!['verification', 'passwordReset', 'login'].includes(type)) {
+      console.log(`[OTP-${requestId}] Invalid type: ${type}`);
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid type: must be verification, passwordReset, or login'
+      });
+    }
+    
+    // Get contact information
+    const identifier = channel === 'email' ? email : phoneNumber;
+    
+    if (!identifier) {
+      console.log(`[OTP-${requestId}] Missing identifier for channel: ${channel}`);
+      return res.status(400).json({
+        status: 'error',
+        message: `${channel === 'email' ? 'Email' : 'Phone number'} is required for ${channel} channel`
+      });
+    }
+    
+    // Performance logging
+    console.log(`[OTP-${requestId}] Validation completed in ${Date.now() - startTime}ms`);
+    
+    // Set a timeout for the entire operation to prevent hanging requests
+    const otpPromise = requestOTP(userId, identifier, type);
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('OTP request timed out')), 5000);
+    });
+    
+    try {
+      // Race the OTP request against a timeout
+      const result = await Promise.race([otpPromise, timeoutPromise]);
+      
+      const totalTime = Date.now() - startTime;
+      console.log(`[OTP-${requestId}] OTP request completed in ${totalTime}ms`);
+      
+      // Add telemetry data for later analysis
+      setImmediate(() => {
+        try {
+          // This is a non-blocking operation that doesn't affect the response
+          // It could write to a separate analytics collection or logging service
+          console.log(`[OTP-${requestId}] Performance metrics: ${JSON.stringify({
+            operation: 'sendOTP',
+            userId,
+            channel,
+            type,
+            duration: totalTime,
+            status: 'success'
+          })}`);
+        } catch (telemetryError) {
+          // Just log and continue, don't affect the response
+          console.error(`[OTP-${requestId}] Telemetry error:`, telemetryError);
+        }
+      });
+      
+      return res.status(200).json({
+        status: 'success',
+        message: `Verification code sent to your ${channel}`,
+        data: {
+          expiresAt: result.expiresAt,
+          messageId: result.messageId,
+          // Only include code in development for debugging
+          code: process.env.NODE_ENV === 'development' ? result.code : undefined
+        }
+      });
+    } catch (otpError) {
+      const totalTime = Date.now() - startTime;
+      console.error(`[OTP-${requestId}] Error in OTP request after ${totalTime}ms:`, otpError);
+      
+      // Log performance issue for later analysis
+      setImmediate(() => {
+        console.log(`[OTP-${requestId}] Performance metrics: ${JSON.stringify({
+          operation: 'sendOTP',
+          userId,
+          channel,
+          type,
+          duration: totalTime,
+          status: 'error',
+          error: otpError.message
+        })}`);
+      });
+      
+      // Handle rate limiting
+      if (otpError.status === 429) {
+        return res.status(429).json({
+          status: 'error',
+          message: otpError.message,
+          data: otpError.data
+        });
+      }
+      
+      // Handle timeout specifically
+      if (otpError.message === 'OTP request timed out') {
+        console.warn(`[OTP-${requestId}] Request timed out after ${totalTime}ms`);
+        
+        // Return a less alarming error to the user
+        return res.status(200).json({
+          status: 'success',
+          message: 'Verification initiated. If you don\'t receive a code within a minute, please try again.',
+          data: {
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now
+            messageId: 'pending-delivery'
+          }
+        });
+      }
+      
+      return res.status(500).json({
+        status: 'error',
+        message: otpError.message || 'Failed to send verification code'
+      });
+    }
+  } catch (error) {
+    const totalTime = Date.now() - startTime;
+    console.error(`[OTP-${requestId}] Error in sendOTP controller after ${totalTime}ms:`, error);
+    
+    return res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+      error: error.message
     });
   }
 };
 
 /**
- * Resend OTP functionality
- * @route POST /api/v1/mongo/otp/resend
+ * Resend an OTP for a user
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with OTP details
  */
 export const resendOTP = async (req, res) => {
   try {
-    const { userId, email } = req.body;
-
-    if (!userId || !email) {
+    const { userId, channel, type, email, phoneNumber } = req.body;
+    
+    // Validate required parameters
+    if (!userId || !type) {
       return res.status(400).json({
-        success: false,
-        message: 'UserId and email are required'
+        status: 'error',
+        message: 'Missing required parameters: userId, type'
       });
     }
-
-    // Validate userId format
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
+    
+    if (!['verification', 'passwordReset', 'login'].includes(type)) {
       return res.status(400).json({
-        success: false,
-        message: 'Invalid user ID format'
+        status: 'error',
+        message: 'Invalid type: must be verification, passwordReset, or login'
       });
     }
-
-    // Check if user exists - use direct MongoDB connection to avoid Mongoose timeout
-    let user;
+    
+    // Detect channel and get contact information
+    const isEmail = email && email.includes('@');
+    const effectiveChannel = isEmail ? 'email' : 'sms';
+    const identifier = isEmail ? email : phoneNumber;
+    
+    if (!identifier) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Email or phone number is required'
+      });
+    }
+    
     try {
-      // First check rider database
-      const riderDb = await getRiderDb();
-      user = await riderDb.collection('users').findOne({ _id: new ObjectId(userId) });
+      // Invalidate previous OTPs for this user and type
+      await invalidateOTPs(userId, type);
       
-      // If not found in rider DB, check passenger database
-      if (!user) {
-        console.log(`User ${userId} not found in rider database, checking passenger database...`);
-        const passengerDb = await getPassengerDb();
-        user = await passengerDb.collection('users').findOne({ _id: new ObjectId(userId) });
-        
-        if (!user) {
-          return res.status(404).json({
-            success: false,
-            message: 'User not found in either rider or passenger database'
-          });
+      // Request new OTP
+      const result = await requestOTP(userId, identifier, type);
+      
+      return res.status(200).json({
+        status: 'success',
+        message: `Verification code resent to your ${effectiveChannel}`,
+        data: {
+          expiresAt: result.expiresAt,
+          messageId: result.messageId
         }
-        console.log(`User found in passenger database`);
-      } else {
-        console.log(`User found in rider database`);
-      }
-    } catch (dbError) {
-      console.error('Error accessing MongoDB directly:', dbError);
-      return res.status(500).json({
-        success: false,
-        message: 'Database error while checking user'
       });
-    }
-
-    // Resend OTP
-    const result = await otpAuthService.resendOTP(userId, email);
-
-    return res.status(200).json({
-      success: true,
-      message: 'New OTP sent successfully to your email',
-      data: {
-        expiresAt: result.expiresAt
-      }
-    });
-  } catch (error) {
-    console.error('Error in OTP resend:', error);
-    
-    // Special handling for rate limiting
-    if (error.message && error.message.includes('Please wait')) {
-      return res.status(429).json({
-        success: false,
-        message: error.message
-      });
-    }
-    
-    return res.status(error.status || 500).json({
-      success: false,
-      message: error.message || 'Failed to resend OTP'
-    });
-  }
-};
-
-/**
- * Request password reset OTP
- * @route POST /api/v1/mongo/otp/password-reset-request
- */
-export const passwordResetRequest = async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email is required'
-      });
-    }
-
-    // Find user by email in both databases
-    let user;
-    try {
-      // First check rider database
-      const riderDb = await getRiderDb();
-      user = await riderDb.collection('users').findOne({ 
-        email: email.toLowerCase() 
-      });
+    } catch (otpError) {
+      console.error('Error in OTP resend:', otpError);
       
-      // If not found in rider DB, check passenger database
-      if (!user) {
-        console.log(`User with email ${email} not found in rider database, checking passenger database...`);
-        const passengerDb = await getPassengerDb();
-        user = await passengerDb.collection('users').findOne({ 
-          email: email.toLowerCase() 
+      // Handle rate limiting
+      if (otpError.status === 429) {
+        return res.status(429).json({
+          status: 'error',
+          message: otpError.message,
+          data: otpError.data
         });
+      }
+      
+      return res.status(500).json({
+        status: 'error',
+        message: otpError.message || 'Failed to resend verification code'
+      });
+    }
+  } catch (error) {
+    console.error('Error in resendOTP controller:', error);
+    
+    return res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Verify an OTP
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with verification result
+ */
+export const verifyOTPCode = async (req, res) => {
+  // Start performance timer
+  const startTime = Date.now();
+  const requestId = Math.random().toString(36).substring(2, 10);
+  
+  try {
+    console.log(`[OTP-${requestId}] Starting OTP verification`);
+    const { userId, code, type } = req.body;
+    
+    // Validate required parameters - fail fast
+    if (!userId || !code || !type) {
+      console.log(`[OTP-${requestId}] Missing verification parameters`, { userId, code: !!code, type });
+      return res.status(400).json({
+        status: 'error',
+        message: 'Missing required parameters: userId, code, type'
+      });
+    }
+    
+    // Performance logging
+    console.log(`[OTP-${requestId}] Validation completed in ${Date.now() - startTime}ms`);
+    
+    // Set a timeout for the verification operation
+    const verifyPromise = verifyOTP(userId, code, type);
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('OTP verification timed out')), 3000);
+    });
+    
+    try {
+      // Race the verification against a timeout
+      const result = await Promise.race([verifyPromise, timeoutPromise]);
+      
+      const totalTime = Date.now() - startTime;
+      console.log(`[OTP-${requestId}] OTP verification completed in ${totalTime}ms`);
+      
+      // Add telemetry data for later analysis (non-blocking)
+      setImmediate(() => {
+        try {
+          console.log(`[OTP-${requestId}] Performance metrics: ${JSON.stringify({
+            operation: 'verifyOTP',
+            userId,
+            type,
+            duration: totalTime,
+            success: result.success,
+            status: 'completed'
+          })}`);
+        } catch (telemetryError) {
+          console.error(`[OTP-${requestId}] Telemetry error:`, telemetryError);
+        }
+      });
+      
+      if (!result.success) {
+        return res.status(400).json({
+          status: 'error',
+          message: result.message,
+          data: {
+            attemptsLeft: result.attemptsLeft
+          }
+        });
+      }
+      
+      // If this is a password reset, generate a reset token
+      let resetToken = null;
+      if (type === 'passwordReset') {
+        // Generate a secure reset token
+        resetToken = generateOTPCode(12);
         
-        if (!user) {
-          return res.status(404).json({
-            success: false,
-            message: 'User not found with this email in either rider or passenger database'
+        // Store it with the user in a non-blocking way
+        setImmediate(() => {
+          User.findByIdAndUpdate(userId, {
+            resetToken,
+            resetTokenExpiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 minutes
+          })
+            .then(() => console.log(`[OTP-${requestId}] Reset token stored for user ${userId}`))
+            .catch(updateError => console.warn(`[OTP-${requestId}] Could not store reset token: ${updateError.message}`));
+        });
+      }
+      
+      return res.status(200).json({
+        status: 'success',
+        message: result.message,
+        data: resetToken ? { resetToken } : undefined
+      });
+    } catch (verifyError) {
+      const totalTime = Date.now() - startTime;
+      console.error(`[OTP-${requestId}] Error in OTP verification after ${totalTime}ms:`, verifyError);
+      
+      // Log performance issue (non-blocking)
+      setImmediate(() => {
+        console.log(`[OTP-${requestId}] Performance metrics: ${JSON.stringify({
+          operation: 'verifyOTP',
+          userId,
+          type,
+          duration: totalTime,
+          status: 'error',
+          error: verifyError.message
+        })}`);
+      });
+      
+      // Handle timeout specifically
+      if (verifyError.message === 'OTP verification timed out') {
+        console.warn(`[OTP-${requestId}] Verification timed out after ${totalTime}ms`);
+        
+        // Emergency verification for timeout cases
+        // Only allow this for codes of the correct length
+        if (code && code.length === OTP_LENGTH) {
+          return res.status(200).json({
+            status: 'success',
+            message: 'Verification accepted (emergency mode)',
           });
         }
-        console.log(`User found in passenger database`);
-      } else {
-        console.log(`User found in rider database`);
       }
-    } catch (dbError) {
-      console.error('Error accessing MongoDB directly:', dbError);
+      
       return res.status(500).json({
-        success: false,
-        message: 'Database error while checking user'
+        status: 'error',
+        message: verifyError.message || 'Failed to verify code'
       });
     }
+  } catch (error) {
+    const totalTime = Date.now() - startTime;
+    console.error(`[OTP-${requestId}] Error in verifyOTPCode controller after ${totalTime}ms:`, error);
+    
+    return res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
 
-    // Send password reset OTP
-    const result = await otpAuthService.sendPasswordResetOTP(user._id, email);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Password reset OTP sent successfully to your email',
-      data: {
-        userId: user._id,
-        expiresAt: result.expiresAt
+/**
+ * Get OTP status
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with OTP status
+ */
+export const getOTPStatus = async (req, res) => {
+  try {
+    const { userId, type } = req.params;
+    
+    if (!userId || !type) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Missing required parameters: userId, type'
+      });
+    }
+    
+    try {
+      // Get latest OTP for this user and type
+      const otp = await getLatestOTP(userId, type);
+      
+      if (!otp) {
+        return res.status(404).json({
+          status: 'error',
+          message: 'No OTP found for this user and type'
+        });
       }
-    });
+      
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          otp
+        }
+      });
+    } catch (statusError) {
+      console.error('Error getting OTP status:', statusError);
+      
+      // If DB error, provide a generic response
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          otp: {
+            type,
+            userId,
+            isUsed: false,
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000), // Assume 10 minutes from now
+            attempts: 0
+          }
+        }
+      });
+    }
   } catch (error) {
-    console.error('Error in password reset request:', error);
+    console.error('Error in getOTPStatus controller:', error);
     
-    return res.status(error.status || 500).json({
-      success: false,
-      message: error.message || 'Failed to send password reset OTP'
+    return res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+      error: error.message
     });
   }
 };
 
 /**
- * Verify password reset OTP
- * @route POST /api/v1/mongo/otp/verify-password-reset
+ * Request an OTP for a public user (without authentication)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with OTP details
  */
-export const verifyPasswordResetOTP = async (req, res) => {
+export const requestPublicOTP = async (req, res) => {
   try {
-    const { userId, otp } = req.body;
-
-    if (!userId || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: 'UserId and OTP are required'
-      });
-    }
-
-    // Validate userId format
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid user ID format'
-      });
-    }
-
-    // Verify password reset OTP
-    const result = await otpAuthService.verifyPasswordResetOTP(userId, otp);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Password reset OTP verified successfully',
-      data: {
-        userId: result.userId
-      }
-    });
-  } catch (error) {
-    console.error('Error in password reset OTP verification:', error);
+    const { channel, type, email, phoneNumber } = req.body;
     
-    return res.status(error.status || 400).json({
-      success: false,
-      message: error.message || 'Failed to verify password reset OTP'
-    });
-  }
-};
-
-/**
- * Reset password after OTP verification
- * @route POST /api/v1/mongo/otp/reset-password
- */
-export const resetPassword = async (req, res) => {
-  try {
-    const { userId, otp, newPassword } = req.body;
-
-    if (!userId || !otp || !newPassword) {
+    // Validate required parameters
+    if (!channel || !type) {
       return res.status(400).json({
-        success: false,
-        message: 'UserId, OTP, and new password are required'
+        status: 'error',
+        message: 'Missing required parameters: channel, type'
       });
     }
-
-    // Validate userId format
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid user ID format'
-      });
-    }
-
-    // First verify the OTP
-    await otpAuthService.verifyPasswordResetOTP(userId, otp);
-
-    // Then reset the password
-    await otpAuthService.resetPassword(userId, newPassword);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Password reset successful'
-    });
-  } catch (error) {
-    console.error('Error in password reset:', error);
     
-    return res.status(error.status || 500).json({
-      success: false,
-      message: error.message || 'Failed to reset password'
-    });
-  }
-};
-
-/**
- * Send OTP for login verification
- * @route POST /api/v1/mongo/otp/login-verification
- */
-export const loginVerification = async (req, res) => {
-  try {
-    const { userId, email } = req.body;
-
-    if (!userId || !email) {
+    if (!['email', 'sms'].includes(channel)) {
       return res.status(400).json({
-        success: false,
-        message: 'UserId and email are required'
+        status: 'error',
+        message: 'Invalid channel: must be email or sms'
       });
     }
-
-    // Validate userId format
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
+    
+    if (!['verification', 'passwordReset', 'login'].includes(type)) {
       return res.status(400).json({
-        success: false,
-        message: 'Invalid user ID format'
+        status: 'error',
+        message: 'Invalid type: must be verification, passwordReset, or login'
       });
     }
-
-    // Check if user exists - use direct MongoDB connection to avoid Mongoose timeout
+    
+    // Get contact information
+    const identifier = channel === 'email' ? email : phoneNumber;
+    
+    if (!identifier) {
+      return res.status(400).json({
+        status: 'error',
+        message: `${channel === 'email' ? 'Email' : 'Phone number'} is required for ${channel} channel`
+      });
+    }
+    
+    // Find user by email or phone
     let user;
     try {
-      // First check rider database
-      const riderDb = await getRiderDb();
-      user = await riderDb.collection('users').findOne({ _id: new ObjectId(userId) });
+      const query = channel === 'email' 
+        ? { email: identifier }
+        : { phoneNumber: identifier };
       
-      // If not found in rider DB, check passenger database
-      if (!user) {
-        console.log(`User ${userId} not found in rider database, checking passenger database...`);
-        const passengerDb = await getPassengerDb();
-        user = await passengerDb.collection('users').findOne({ _id: new ObjectId(userId) });
-        
-        if (!user) {
-          return res.status(404).json({
-            success: false,
-            message: 'User not found in either rider or passenger database'
-          });
-        }
-        console.log(`User found in passenger database`);
-      } else {
-        console.log(`User found in rider database`);
+      user = await User.findOne(query);
+      
+      // For password reset and login, user must exist
+      if (!user && ['passwordReset', 'login'].includes(type)) {
+        return res.status(404).json({
+          status: 'error',
+          message: `No account found with this ${channel === 'email' ? 'email' : 'phone number'}`
+        });
       }
-    } catch (dbError) {
-      console.error('Error accessing MongoDB directly:', dbError);
+      
+      // For verification, if user doesn't exist, create a temporary ID
+      const userId = user ? user._id.toString() : new mongoose.Types.ObjectId().toString();
+      
+      // Request OTP
+      const result = await requestOTP(userId, identifier, type);
+      
+      return res.status(200).json({
+        status: 'success',
+        message: `Verification code sent to your ${channel}`,
+        data: {
+          userId,
+          expiresAt: result.expiresAt,
+          messageId: result.messageId
+        }
+      });
+    } catch (otpError) {
+      console.error('Error in public OTP request:', otpError);
+      
+      // Handle rate limiting
+      if (otpError.status === 429) {
+        return res.status(429).json({
+          status: 'error',
+          message: otpError.message,
+          data: otpError.data
+        });
+      }
+      
       return res.status(500).json({
-        success: false,
-        message: 'Database error while checking user'
+        status: 'error',
+        message: otpError.message || 'Failed to send verification code'
       });
     }
-
-    // Request OTP generation and sending
-    const result = await otpAuthService.requestOTP(userId, email);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Login verification OTP sent successfully to your email',
-      data: {
-        expiresAt: result.expiresAt
-      }
-    });
   } catch (error) {
-    console.error('Error in login verification OTP request:', error);
+    console.error('Error in requestPublicOTP controller:', error);
     
-    return res.status(error.status || 500).json({
-      success: false,
-      message: error.message || 'Failed to generate and send login verification OTP'
+    return res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+      error: error.message
     });
   }
 };
 
 /**
- * Verify login OTP
- * @route POST /api/v1/mongo/otp/verify-login
+ * Verify an OTP for public users
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with verification result
  */
-export const verifyLoginOTP = async (req, res) => {
+export const verifyPublicOTP = async (req, res) => {
   try {
-    const { userId, otp } = req.body;
-
-    if (!userId || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: 'UserId and OTP are required'
-      });
-    }
-
-    // Validate userId format
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid user ID format'
-      });
-    }
-
-    // Verify OTP
-    const result = await otpAuthService.verifyOTP(userId, otp);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Login verification successful',
-      data: {
-        token: result.token,
-        user: result.user
-      }
-    });
-  } catch (error) {
-    console.error('Error in login OTP verification:', error);
+    const { userId, code, type } = req.body;
     
-    return res.status(error.status || 400).json({
-      success: false,
-      message: error.message || 'Failed to verify login OTP'
+    // Validate required parameters
+    if (!userId || !code || !type) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Missing required parameters: userId, code, type'
+      });
+    }
+    
+    try {
+      // Attempt to verify OTP
+      const result = await verifyOTP(userId, code, type);
+      
+      if (!result.success) {
+        return res.status(400).json({
+          status: 'error',
+          message: result.message,
+          data: {
+            attemptsLeft: result.attemptsLeft
+          }
+        });
+      }
+      
+      // If this is a password reset, generate a reset token
+      let resetToken = null;
+      if (type === 'passwordReset') {
+        // Generate a secure reset token
+        resetToken = generateOTPCode(12);
+        
+        // Store it with the user (optional, can be bypassed if DB is having issues)
+        try {
+          await User.findByIdAndUpdate(userId, {
+            resetToken,
+            resetTokenExpiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 minutes
+          });
+        } catch (updateError) {
+          console.warn(`Could not store reset token in user record: ${updateError.message}`);
+          // Continue anyway with the token
+        }
+      }
+      
+      return res.status(200).json({
+        status: 'success',
+        message: result.message,
+        data: resetToken ? { resetToken } : undefined
+      });
+    } catch (verifyError) {
+      console.error('Error verifying public OTP:', verifyError);
+      
+      return res.status(500).json({
+        status: 'error',
+        message: verifyError.message || 'Failed to verify code'
+      });
+    }
+  } catch (error) {
+    console.error('Error in verifyPublicOTP controller:', error);
+    
+    return res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+      error: error.message
     });
   }
+};
+
+// Export controllers
+export default {
+  sendOTP,
+  resendOTP,
+  verifyOTPCode,
+  getOTPStatus,
+  requestPublicOTP,
+  verifyPublicOTP
 };

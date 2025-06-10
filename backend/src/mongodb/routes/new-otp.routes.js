@@ -1,74 +1,61 @@
 /**
- * New OTP Routes
- * Defines API endpoints for OTP generation, verification, and management using MongoDB
+ * OTP Routes
+ * Routes for OTP generation, verification, and management
  */
-import express from 'express';
-import * as otpController from '../controllers/new-otp.controller.js';
+import { Router } from 'express';
+import { 
+  sendOTP, 
+  resendOTP, 
+  verifyOTPCode, 
+  getOTPStatus,
+  requestPublicOTP,
+  verifyPublicOTP
+} from '../controllers/new-otp.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
+import { rateLimiter } from '../../middleware/rate-limiter.js';
 
-const router = express.Router();
-
-/**
- * @route POST /api/v1/mongo/otp/request
- * @desc Generate and send an OTP via email
- * @access Public (for verification during login)
- */
-router.post('/request', otpController.requestOTP);
+const router = Router();
 
 /**
  * @route POST /api/v1/mongo/otp/send
- * @desc Generate and send an OTP via email (backward compatibility)
- * @access Public (for verification during login)
+ * @desc Send an OTP to a user
+ * @access Private - Authenticated users only
  */
-router.post('/send', otpController.requestOTP);
+router.post('/send', authenticate, rateLimiter({ windowMs: 60000, max: 5 }), sendOTP);
+
+/**
+ * @route POST /api/v1/mongo/otp/resend
+ * @desc Resend an OTP to a user
+ * @access Private - Authenticated users only
+ */
+router.post('/resend', authenticate, rateLimiter({ windowMs: 60000, max: 3 }), resendOTP);
 
 /**
  * @route POST /api/v1/mongo/otp/verify
  * @desc Verify an OTP
- * @access Public (needs to be public for pre-login verification)
+ * @access Private - Authenticated users only
  */
-router.post('/verify', otpController.verifyOTP);
+router.post('/verify', authenticate, verifyOTPCode);
 
 /**
- * @route POST /api/v1/mongo/otp/resend
- * @desc Resend an OTP
- * @access Public (for verification during login)
+ * @route GET /api/v1/mongo/otp/status/:userId/:type
+ * @desc Get OTP status for a user and type
+ * @access Private - Authenticated users only
  */
-router.post('/resend', otpController.resendOTP);
+router.get('/status/:userId/:type', authenticate, getOTPStatus);
 
 /**
- * @route POST /api/v1/mongo/otp/password-reset-request
- * @desc Request an OTP for password reset
+ * @route POST /api/v1/mongo/otp/public/request
+ * @desc Request an OTP for a public user (without authentication)
  * @access Public
  */
-router.post('/password-reset-request', otpController.passwordResetRequest);
+router.post('/public/request', rateLimiter({ windowMs: 60000, max: 3 }), requestPublicOTP);
 
 /**
- * @route POST /api/v1/mongo/otp/verify-password-reset
- * @desc Verify an OTP for password reset
+ * @route POST /api/v1/mongo/otp/public/verify
+ * @desc Verify an OTP for a public user
  * @access Public
  */
-router.post('/verify-password-reset', otpController.verifyPasswordResetOTP);
-
-/**
- * @route POST /api/v1/mongo/otp/reset-password
- * @desc Reset password after OTP verification
- * @access Public
- */
-router.post('/reset-password', otpController.resetPassword);
-
-/**
- * @route POST /api/v1/mongo/otp/login-verification
- * @desc Send OTP for login verification
- * @access Public
- */
-router.post('/login-verification', otpController.loginVerification);
-
-/**
- * @route POST /api/v1/mongo/otp/verify-login
- * @desc Verify OTP for login
- * @access Public
- */
-router.post('/verify-login', otpController.verifyLoginOTP);
+router.post('/public/verify', verifyPublicOTP);
 
 export default router;
