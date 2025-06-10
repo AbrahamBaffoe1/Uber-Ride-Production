@@ -44,14 +44,22 @@ class ApiClient {
     // Add request interceptor for authentication
     this.instance.interceptors.request.use(
       async (config) => {
-        // Get token if not already loaded
-        if (!this.token) {
-          this.token = await AsyncStorage.getItem('authToken');
-        }
+        try {
+          // Get token if not already loaded
+          if (!this.token) {
+            this.token = await AsyncStorage.getItem('authToken');
+          }
 
-        // If token exists, add it to the headers
-        if (this.token) {
-          config.headers.Authorization = `Bearer ${this.token}`;
+          // If token exists, add it to the headers
+          if (this.token) {
+            config.headers.Authorization = `Bearer ${this.token}`;
+          } else {
+            // Log missing token but proceed with request
+            console.warn('Authentication token not found. Making unauthenticated request.');
+          }
+        } catch (error) {
+          console.error('Error retrieving auth token:', error);
+          // Continue without token rather than failing the request
         }
 
         return config;
@@ -92,10 +100,15 @@ class ApiClient {
       const responseData = error.response.data as any;
 
       // If unauthorized and token exists, token might be expired
-      if (status === 401 && this.token) {
-        // Clear token
-        this.clearToken();
-        // You might want to add logic to refresh token or redirect to login
+      if (status === 401) {
+        if (this.token) {
+          console.error('Authentication error: Token invalid or expired');
+          // Clear token
+          this.clearToken();
+          // You might want to add logic to refresh token or redirect to login
+        } else {
+          console.error('Authentication error: No token provided for authenticated endpoint');
+        }
       }
       
       // For 404 errors, create a specific ApiError with a "not found" message

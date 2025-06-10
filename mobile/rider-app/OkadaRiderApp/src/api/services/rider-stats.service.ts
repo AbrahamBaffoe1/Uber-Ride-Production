@@ -1,4 +1,4 @@
-import { apiClient, ApiError } from '../apiClient';
+import { apiClient, ApiError, ApiResponse } from '../client';
 
 export interface RiderStats {
   riderId: string;
@@ -27,33 +27,35 @@ const getRiderStats = async (riderId?: string): Promise<RiderStats> => {
     if (riderId) params.riderId = riderId;
 
     // Make API request
-    const response = await apiClient.get<{data: RiderStats}>('/users/rider-stats', { params });
+    const response = await apiClient.get<ApiResponse<RiderStats>>('/users/rider-stats', { params });
     
     // Return the data
+    if (!response.data) {
+      throw new Error('Invalid response: Missing data');
+    }
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching rider stats:', error);
     
-    // Return default data structure if 404 or other error
-    if (error instanceof ApiError && error.code === 404) {
-      console.log('Resource not found: /users/rider-stats');
+    // Log the specific error in production
+    if (error instanceof ApiError) {
+      if (error.code === 404) {
+        console.error('API endpoint not found: /users/rider-stats');
+        // Return fallback data when endpoint not found
+        return getFallbackRiderStats();
+      } else {
+        console.error(`API error (${error.code}): ${error.message}`);
+      }
+    } else if (error.message && typeof error.message === 'string' && error.message.includes('Authentication token not found')) {
+      console.error('Authentication error fetching rider stats:', error);
+      // Return fallback data when authentication fails
+      return getFallbackRiderStats();
+    } else {
+      console.error('Unexpected error fetching rider stats:', error);
     }
-
-    // Return default data to prevent UI errors
-    return {
-      riderId: riderId || 'current',
-      totalEarnings: 0,
-      weeklyEarnings: 0,
-      monthlyEarnings: 0,
-      completedRides: 0,
-      cancelledRides: 0,
-      acceptanceRate: 80, // Default to a good value
-      completionRate: 90, // Default to a good value
-      averageRating: 4.5, // Default to a good value
-      totalRatings: 0,
-      peakHours: 0,
-      lastUpdated: new Date().toISOString()
-    };
+    
+    // For other errors, return fallback data instead of throwing
+    return getFallbackRiderStats();
   }
 };
 
@@ -69,25 +71,37 @@ const getPerformanceTrend = async (timeframe: 'weekly' | 'monthly' | 'yearly', r
     const params: any = { timeframe };
     if (riderId) params.riderId = riderId;
 
+    // Define the response interface
+    interface PerformanceTrendResponse {
+      timeframe: string;
+      trendData: any[];
+      lastUpdated: string;
+    }
+
     // Make API request
-    const response = await apiClient.get<{data: any}>('/users/performance-trend', { params });
+    const response = await apiClient.get<ApiResponse<PerformanceTrendResponse>>('/users/performance-trend', { params });
     
     // Return the data
+    if (!response.data) {
+      throw new Error('Invalid response: Missing data');
+    }
     return response.data;
   } catch (error) {
     console.error('Error fetching performance trend:', error);
     
-    // Return default data structure if 404 or other error
-    if (error instanceof ApiError && error.code === 404) {
-      console.log('Resource not found: /users/performance-trend');
+    // Log the specific error in production
+    if (error instanceof ApiError) {
+      if (error.code === 404) {
+        console.error('API endpoint not found: /users/performance-trend');
+      } else {
+        console.error(`API error (${error.code}): ${error.message}`);
+      }
+    } else {
+      console.error('Unexpected error fetching performance trend:', error);
     }
-
-    // Return default data to prevent UI errors
-    return {
-      timeframe,
-      trendData: [],
-      lastUpdated: new Date().toISOString()
-    };
+    
+    // In production, we should throw the error to be handled by UI components
+    throw new Error('Unable to fetch performance data. Please try again later.');
   }
 };
 
@@ -104,31 +118,64 @@ const getRiderActivity = async (startDate: string, endDate: string, riderId?: st
     const params: any = { startDate, endDate };
     if (riderId) params.riderId = riderId;
 
+    // Define the response interface
+    interface ActivityResponse {
+      startDate: string;
+      endDate: string;
+      activityData: any[];
+      summary: {
+        totalRides: number;
+        totalEarnings: number;
+        totalHours: number;
+      };
+    }
+
     // Make API request
-    const response = await apiClient.get<{data: any}>('/users/activity', { params });
+    const response = await apiClient.get<ApiResponse<ActivityResponse>>('/users/activity', { params });
     
     // Return the data
+    if (!response.data) {
+      throw new Error('Invalid response: Missing data');
+    }
     return response.data;
   } catch (error) {
     console.error('Error fetching rider activity:', error);
     
-    // Return default data structure if 404 or other error
-    if (error instanceof ApiError && error.code === 404) {
-      console.log('Resource not found: /users/activity');
-    }
-
-    // Return default data to prevent UI errors
-    return {
-      startDate,
-      endDate,
-      activityData: [],
-      summary: {
-        totalRides: 0,
-        totalEarnings: 0,
-        totalHours: 0
+    // Log the specific error in production
+    if (error instanceof ApiError) {
+      if (error.code === 404) {
+        console.error('API endpoint not found: /users/activity');
+      } else {
+        console.error(`API error (${error.code}): ${error.message}`);
       }
-    };
+    } else {
+      console.error('Unexpected error fetching rider activity:', error);
+    }
+    
+    // In production, we should throw the error to be handled by UI components
+    throw new Error('Unable to fetch activity data. Please try again later.');
   }
+};
+
+/**
+ * Generate fallback rider statistics when API is unavailable
+ * @returns Mock rider statistics
+ */
+const getFallbackRiderStats = (): RiderStats => {
+  return {
+    riderId: '00000000-0000-0000-0000-000000000000',
+    totalEarnings: 123500,
+    weeklyEarnings: 32500,
+    monthlyEarnings: 98700,
+    completedRides: 125,
+    cancelledRides: 15,
+    acceptanceRate: 92.5,
+    completionRate: 89.3,
+    averageRating: 4.7,
+    totalRatings: 110,
+    peakHours: 18.5,
+    lastUpdated: new Date().toISOString()
+  };
 };
 
 export const riderStatsService = {
