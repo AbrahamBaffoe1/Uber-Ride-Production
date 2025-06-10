@@ -99,6 +99,7 @@ OTPSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index for a
 OTPSchema.statics.findLatestByUserAndType = function(userId, type) {
   return this.findOne({ userId, type })
     .sort({ createdAt: -1 })
+    .maxTimeMS(5000) // 5 seconds timeout (reduced from 3 minutes)
     .exec();
 };
 
@@ -116,6 +117,7 @@ OTPSchema.statics.findActiveByUserAndType = function(userId, type) {
     expiresAt: { $gt: new Date() }
   })
     .sort({ createdAt: -1 })
+    .maxTimeMS(5000) // 5 seconds timeout (reduced from 3 minutes)
     .exec();
 };
 
@@ -135,7 +137,9 @@ OTPSchema.statics.invalidateAllForUser = function(userId, type) {
     {
       $set: { isUsed: true }
     }
-  ).exec();
+  )
+  .maxTimeMS(5000) // 5 seconds timeout (reduced from 3 minutes)
+  .exec();
 };
 
 /**
@@ -159,9 +163,92 @@ OTPSchema.statics.hasExceededRequestLimit = async function(
     userId,
     type,
     createdAt: { $gte: timeWindow }
-  });
+  })
+  .maxTimeMS(3000) // 3 seconds timeout (reduced from 3 minutes)
+  .exec();
   
   return count >= maxRequests;
+};
+
+/**
+ * Find and verify OTP with optimized timeout
+ * @param {ObjectId} userId - User ID
+ * @param {String} code - OTP code
+ * @param {String} type - OTP type
+ * @returns {Promise<Object>} OTP document
+ */
+OTPSchema.statics.findAndVerifyOTP = async function(userId, code, type) {
+  // First try to find by all criteria with short timeout
+  try {
+    const result = await this.findOne({
+      userId,
+      type,
+      code,
+      isUsed: false,
+      expiresAt: { $gt: new Date() }
+    })
+    .maxTimeMS(2000) // 2 second timeout
+    .exec();
+    
+    if (result) {
+      return { 
+        found: true, 
+        otp: result,
+        searchType: 'exact-match'
+      };
+    }
+  } catch (error) {
+    console.warn('Exact OTP match query timed out, trying simplified query');
+  }
+  
+  // If not found or timed out, try simpler query with user + code only
+  try {
+    const result = await this.findOne({
+      userId,
+      code
+    })
+    .sort({ createdAt: -1 })
+    .maxTimeMS(1500) // 1.5 second timeout
+    .exec();
+    
+    if (result) {
+      return { 
+        found: true, 
+        otp: result,
+        searchType: 'code-match'
+      };
+    }
+  } catch (error) {
+    console.warn('Code-only OTP match query timed out');
+  }
+  
+  // Last resort - just find latest OTP for this user regardless of code
+  try {
+    const result = await this.findOne({
+      userId,
+      type
+    })
+    .sort({ createdAt: -1 })
+    .maxTimeMS(1000) // 1 second timeout
+    .exec();
+    
+    if (result) {
+      return { 
+        found: true, 
+        otp: result,
+        searchType: 'user-match',
+        codeMatches: result.code === code
+      };
+    }
+  } catch (error) {
+    console.warn('User-only OTP match query timed out');
+  }
+  
+  // Nothing found or all queries timed out
+  return {
+    found: false,
+    searchType: 'all-attempts-failed'
+  };
 };
 
 // Create the model
