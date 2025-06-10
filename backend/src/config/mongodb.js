@@ -7,6 +7,9 @@ import { MongoClient, ServerApiVersion } from 'mongodb';
 // Always use Atlas URIs since local MongoDB isn't installed
 const MONGODB_RIDER_URI = process.env.MONGODB_RIDER_URI || 'mongodb+srv://as4474gq:qGlK0v7ELpFVUPuJ@okadacluster.i9osi.mongodb.net/okada-rider?retryWrites=true&w=majority&appName=OkadaCluster';
 const MONGODB_PASSENGER_URI = process.env.MONGODB_PASSENGER_URI || 'mongodb+srv://as4474gq:qGlK0v7ELpFVUPuJ@okadacluster.i9osi.mongodb.net/okada-passenger?retryWrites=true&w=majority&appName=OkadaCluster';
+// Admin database URI - using same credentials as rider DB but with a different database name
+const MONGODB_ADMIN_URI = process.env.MONGODB_ADMIN_URI || 
+                        MONGODB_RIDER_URI.replace('okada-rider', 'okada-admin');
 
 // Dramatically increased timeout values to fix connection and operation timeouts
 const TIMEOUT_VALUES = {
@@ -319,6 +322,7 @@ const connectToMongoDB = async (appType = 'shared') => {
 // Create and maintain separate connections
 let riderConnection = null;
 let passengerConnection = null;
+let adminConnection = null;
 
 // Connect to rider database
 const connectToRiderDB = async () => {
@@ -332,15 +336,61 @@ const connectToPassengerDB = async () => {
   return passengerConnection;
 };
 
+// Connect to admin database
+const connectToAdminDB = async () => {
+  // Use the admin-specific URI
+  try {
+    const uri = MONGODB_ADMIN_URI;
+    const maskedUri = uri.includes('@') 
+      ? uri.substring(0, uri.indexOf('://') + 3) + '***:***@' + uri.substring(uri.indexOf('@') + 1) 
+      : uri;
+    
+    console.log(`Attempting to connect to MongoDB (admin) with extended timeouts at: ${maskedUri}`);
+    
+    const isLocalConnection = uri.includes('localhost') || uri.includes('127.0.0.1');
+    const options = isLocalConnection 
+      ? { ...localMongooseOptions }  // Local connection
+      : { ...cloudMongooseOptions }; // Cloud connection
+    
+    options.appName = 'okada-admin';
+    
+    adminConnection = mongoose.createConnection(uri, options);
+    
+    // Add connection event handlers
+    adminConnection.on('connected', () => {
+      console.log(`MongoDB (admin) connected successfully at ${isLocalConnection ? 'localhost' : 'Atlas'}`);
+    });
+    
+    adminConnection.on('disconnected', () => {
+      console.warn(`MongoDB (admin) disconnected. Attempting to reconnect...`);
+    });
+    
+    adminConnection.on('error', (err) => {
+      console.error(`MongoDB (admin) connection error:`, err);
+    });
+    
+    await adminConnection.db.command({ ping: 1 }, { maxTimeMS: TIMEOUT_VALUES.OPERATION_TIMEOUT });
+    console.log(`MongoDB (admin) connection verified with ping`);
+    
+    return adminConnection;
+  } catch (error) {
+    console.error('Failed to connect to admin database:', error);
+    throw error;
+  }
+};
+
 // Get existing connections
 const getRiderConnection = () => riderConnection;
 const getPassengerConnection = () => passengerConnection;
+const getAdminConnection = () => adminConnection;
 
 export {
   connectToMongoDB,
   connectToRiderDB,
   connectToPassengerDB,
+  connectToAdminDB,
   getRiderConnection,
   getPassengerConnection,
+  getAdminConnection,
   mongoose,
 };

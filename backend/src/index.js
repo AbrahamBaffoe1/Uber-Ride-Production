@@ -21,7 +21,7 @@ import { initializeEnhancedTracking } from './services/enhanced-tracking.service
 import * as realTimeAvailability from './services/real-time-availability.service.js';
 import * as pricingEngine from './services/pricing-engine.service.js';
 import * as riderMatching from './services/rider-matching.service.js';
-import { connectToRiderDB, connectToPassengerDB } from './config/mongodb.js';
+import { connectToRiderDB, connectToPassengerDB, connectToAdminDB } from './config/mongodb.js';
 
 // Import routes with app-specific and shared routes
 import setupAppRoutes from './mongodb/routes/index.js';
@@ -189,9 +189,10 @@ mongoose.set('autoIndex', process.env.NODE_ENV !== 'production'); // Don't auto-
       try {
         console.log(`Database connection attempt ${retryCount + 1}/${maxRetries}`);
         
-        // Connect to rider and passenger databases using both approaches
+        // Connect to rider and passenger databases only (admin uses rider connection)
         riderConnection = await connectToRiderDB();
         passengerConnection = await connectToPassengerDB();
+        console.log("Rider and passenger database connections established");
         
         // Also initialize the direct MongoDB client connection
         await connectToMongo();

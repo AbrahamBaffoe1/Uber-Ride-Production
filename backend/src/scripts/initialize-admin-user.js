@@ -4,11 +4,13 @@
  * Can be used during app startup or as a standalone script
  * 
  * UPDATED: Fixed timeout issues and improved reliability
+ * UPDATED: Uses AdminUser model with rider database connection
  */
 import mongoose from 'mongoose';
-import User from '../mongodb/models/User.js';
+import AdminUser from '../mongodb/models/AdminUser.js';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
+import { connectToRiderDB } from '../config/mongodb.js';
 
 // Load environment variables
 dotenv.config();
@@ -29,7 +31,7 @@ const TIMEOUT_VALUES = {
  */
 export const initializeAdminUser = async () => {
   try {
-    console.log('Starting admin user initialization with improved timeout settings...');
+    console.log('Starting admin user initialization in rider database...');
     
     // Get admin details from environment variables first to validate
     // before attempting any database operations
@@ -49,21 +51,24 @@ export const initializeAdminUser = async () => {
     // Apply extended timeouts to mongoose operations
     mongoose.set('maxTimeMS', TIMEOUT_VALUES.MAX_TIME_MS);
     
+    // Connect to rider database specifically for this operation
+    console.log('Connecting to rider database...');
+    const riderConnection = await connectToRiderDB();
+    
+    // Register the AdminUser model with the rider connection if not already registered
+    if (!riderConnection.models.AdminUser) {
+      riderConnection.model('AdminUser', AdminUser.schema);
+    }
+    
     // First, try using direct MongoDB operations which are more reliable for this use case
     try {
-      // Ensure mongoose connection is ready
-      if (!mongoose.connection.db) {
-        console.log('Database connection not ready, falling back to Mongoose operations...');
-        throw new Error('Database not ready');
-      }
-      
       // Get database and collection directly
-      const db = mongoose.connection.db;
-      const usersCollection = db.collection('users');
+      const db = riderConnection.db;
+      const adminUsersCollection = db.collection('adminusers');
       
       // Check if admin exists to avoid duplicate
-      const existingAdmin = await usersCollection.findOne(
-        { role: 'admin' }, 
+      const existingAdmin = await adminUsersCollection.findOne(
+        { email }, 
         { maxTimeMS: TIMEOUT_VALUES.OPERATION_TIMEOUT }
       );
       
@@ -86,17 +91,13 @@ export const initializeAdminUser = async () => {
         firstName: firstName || 'System',
         lastName: lastName || 'Admin',
         phoneNumber: phoneNumber || '+1987654321',
-        role: 'admin',
-        isEmailVerified: true,
-        isPhoneVerified: true,
         status: 'active',
-        accountStatus: 'active',
         createdAt: new Date(),
         updatedAt: new Date()
       };
       
       // Insert directly with extended timeout
-      const result = await usersCollection.insertOne(
+      const result = await adminUsersCollection.insertOne(
         adminUser, 
         { maxTimeMS: TIMEOUT_VALUES.OPERATION_TIMEOUT }
       );
@@ -119,29 +120,25 @@ export const initializeAdminUser = async () => {
       console.log('Falling back to Mongoose operations...');
       
       try {
-        // Check if admin exists with extended timeout
-        const existingAdmin = await User.findOne({ role: 'admin' })
-          .maxTimeMS(TIMEOUT_VALUES.OPERATION_TIMEOUT)
-          .exec();
+      // Check if admin exists with extended timeout
+      const existingAdmin = await AdminUser.findOne({ email })
+        .maxTimeMS(TIMEOUT_VALUES.OPERATION_TIMEOUT)
+        .exec();
         
         if (existingAdmin) {
           console.log('Admin user found using Mongoose fallback');
           return true;
         }
         
-        // Create new admin user with Mongoose
-        const newAdmin = new User({
-          email,
-          password, // Will be hashed by the pre-save hook
-          firstName: firstName || 'System',
-          lastName: lastName || 'Admin',
-          phoneNumber: phoneNumber || '+1987654321',
-          role: 'admin',
-          isEmailVerified: true,
-          isPhoneVerified: true,
-          status: 'active',
-          accountStatus: 'active'
-        });
+      // Create new admin user with Mongoose
+      const newAdmin = new AdminUser({
+        email,
+        password, // Will be hashed by the pre-save hook
+        firstName: firstName || 'System',
+        lastName: lastName || 'Admin',
+        phoneNumber: phoneNumber || '+1987654321',
+        status: 'active'
+      });
         
         // Set a custom timeout for the save operation
         const saveResult = await newAdmin.save({ maxTimeMS: TIMEOUT_VALUES.OPERATION_TIMEOUT });
@@ -172,11 +169,11 @@ export const initializeAdminUser = async () => {
 // Function to connect to MongoDB with proper timeouts and options
 const connectToMongoDB = async () => {
   try {
-    const mongoURI = process.env.MONGODB_URI || 
-                    process.env.MONGODB_RIDER_URI || 
-                    'mongodb://localhost:27017/okada-transportation';
+    // We'll use the rider database URI
+    const mongoURI = process.env.MONGODB_RIDER_URI || 
+                    'mongodb+srv://as4474gq:qGlK0v7ELpFVUPuJ@okadacluster.i9osi.mongodb.net/okada-rider?retryWrites=true&w=majority&appName=OkadaCluster';
     
-    console.log('Connecting to MongoDB with extended timeouts...');
+    console.log('Connecting to Rider MongoDB with extended timeouts...');
     
     // Set more resilient connection options with increased timeouts
     const options = {
@@ -189,12 +186,10 @@ const connectToMongoDB = async () => {
       retryWrites: true, // Retry writes in case of failures
       retryReads: true, // Retry reads in case of failures
       family: 4, // Use IPv4 (helps avoid certain IPv6-related issues)
-      // Additional driver options for better performance
-      driverOptions: {
-        serverApi: { version: '1' },
-        maxIdleTimeMS: 60000,
-        monitorCommands: true
-      }
+    // Additional driver options for better performance
+    serverApi: { version: '1' },
+    maxIdleTimeMS: 60000,
+    monitorCommands: true
     };
     
     await mongoose.connect(mongoURI, options);

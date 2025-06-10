@@ -31,9 +31,14 @@ export const registerModels = (riderConnection, passengerConnection) => {
     if (!riderConnection.models.TrackingEvent) {
       riderConnection.model('TrackingEvent', TrackingEvent.schema);
     }
+    
+    // Make sure SavedLocation is available on both connections
+    if (!riderConnection.models.SavedLocation) {
+      riderConnection.model('SavedLocation', SavedLocation.schema);
+    }
 
     // Register models on passenger connection
-    if (!passengerConnection.models.SavedLocation) {
+    if (passengerConnection && !passengerConnection.models.SavedLocation) {
       passengerConnection.model('SavedLocation', SavedLocation.schema);
     }
     if (!passengerConnection.models.User) {

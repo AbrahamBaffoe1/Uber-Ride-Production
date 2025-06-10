@@ -3,10 +3,27 @@
  * Handles authentication operations for admin users
  */
 import mongoose from 'mongoose';
-import User from '../models/User.js';
+// Import the rider connection instead since it has better permissions
+import { connectToRiderDB } from '../../config/mongodb.js';
 import TokenBlacklist from '../models/TokenBlacklist.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import AdminUser from '../models/AdminUser.js';
+
+// Connect to rider database but use the AdminUser model
+// This gives us separation of models while using a connection we know works
+let riderConnection;
+(async () => {
+  try {
+    riderConnection = await connectToRiderDB();
+    if (!riderConnection.models.AdminUser) {
+      riderConnection.model('AdminUser', AdminUser.schema);
+    }
+    console.log('Successfully connected to rider database for admin authentication');
+  } catch (error) {
+    console.error('Failed to connect to rider database for admin auth:', error);
+  }
+})();
 
 /**
  * Login admin user and generate authentication tokens
@@ -25,14 +42,12 @@ export const loginAdmin = async (email, password) => {
   // Find admin user with timeout protection
   let admin;
   try {
-    // Set up the MongoDB query with a timeout
-    const findPromise = User.findOne({ email, role: 'admin' });
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Admin user query timed out after 10 seconds')), 10000)
-    );
-    
-    // Race the promises to prevent hanging
-    admin = await Promise.race([findPromise, timeoutPromise]);
+    if (!riderConnection || !riderConnection.models.AdminUser) {
+      throw new Error('Rider database connection or AdminUser model not ready');
+    }
+    // Use the AdminUser model from the rider connection
+    const AdminUserModel = riderConnection.models.AdminUser;
+    admin = await AdminUserModel.findOne({ email }).maxTimeMS(30000);
   } catch (error) {
     console.error('Error in admin user lookup:', error);
     throw new Error(error.message.includes('timed out') 
@@ -41,15 +56,21 @@ export const loginAdmin = async (email, password) => {
   }
   
   if (!admin) {
+    console.log('Admin user not found');
     throw new Error('Invalid credentials');
   }
+  
+  console.log('Found admin user:', admin.email);
   
   // Check password using the model method
   const isPasswordValid = await admin.comparePassword(password);
   
   if (!isPasswordValid) {
+    console.log('Invalid password provided');
     throw new Error('Invalid credentials');
   }
+  
+  console.log('Admin authentication successful');
   
   // Update last login timestamp
   admin.lastLogin = new Date();
@@ -146,8 +167,12 @@ export const getCurrentAdmin = async (userId) => {
     throw new Error('User ID is required');
   }
   
-  // Find admin user
-  const admin = await User.findById(userId).select('-password');
+  if (!riderConnection || !riderConnection.models.AdminUser) {
+    throw new Error('Rider database connection or AdminUser model not ready');
+  }
+  // Use the AdminUser model from the rider connection
+  const AdminUserModel = riderConnection.models.AdminUser;
+  const admin = await AdminUserModel.findById(userId).select('-password');
   
   if (!admin || admin.role !== 'admin') {
     throw new Error('Unauthorized: User not found or not an admin');
@@ -171,7 +196,7 @@ export const getCurrentAdmin = async (userId) => {
  */
 const generateAuthToken = (user) => {
   return jwt.sign(
-    { id: user._id, role: user.role },
+    { id: user._id, role: user.role || 'admin' }, // Default to 'admin' if role is not set
     process.env.JWT_SECRET || 'dev-secret-key',
     { expiresIn: process.env.JWT_EXPIRY || '24h' }
   );
@@ -184,7 +209,7 @@ const generateAuthToken = (user) => {
  */
 const generateRefreshToken = (user) => {
   return jwt.sign(
-    { id: user._id, role: user.role },
+    { id: user._id, role: user.role || 'admin' }, // Default to 'admin' if role is not set
     process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-key',
     { expiresIn: process.env.JWT_REFRESH_EXPIRY || '7d' }
   );
