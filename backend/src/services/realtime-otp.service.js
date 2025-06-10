@@ -2,10 +2,12 @@
  * Realtime OTP Service
  * Handles OTP generation, sending, and verification using MongoDB and Nodemailer
  */
-const mongoose = require('mongoose');
-const nodemailer = require('nodemailer');
-const loggingService = require('./logging.service');
-require('dotenv').config();
+import mongoose from 'mongoose';
+import nodemailer from 'nodemailer';
+import * as loggingService from './logging.service.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 // Define OTP schema with TTL index
 const otpSchema = new mongoose.Schema({
@@ -533,4 +535,4 @@ class RealtimeOtpService {
 
 // Create and export realtime OTP service instance
 const realtimeOtpService = new RealtimeOtpService();
-module.exports = realtimeOtpService;
+export default realtimeOtpService;

@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from './config';
+import { AUTH_TOKEN_KEY, REFRESH_TOKEN_KEY } from '../constants/auth';
 
 // Log API connection info for debugging
 console.log(`Connecting to API at: ${API_BASE_URL || 'undefined'}`);
@@ -46,7 +47,7 @@ class ApiClient {
     // Add auth token to requests
     this.instance.interceptors.request.use(
       async (config) => {
-        const token = await AsyncStorage.getItem('authToken');
+        const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -65,7 +66,7 @@ class ApiClient {
           originalRequest._retry = true;
           
           try {
-            const refreshToken = await AsyncStorage.getItem('refreshToken');
+            const refreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
             
             // Build correct endpoint for token refresh
             let refreshEndpoint = '/auth/refresh-token';
@@ -83,15 +84,15 @@ class ApiClient {
             const newRefreshToken = response.data.data.refreshToken;
             
             await AsyncStorage.multiSet([
-              ['authToken', token],
-              ['refreshToken', newRefreshToken]
+              [AUTH_TOKEN_KEY, token],
+              [REFRESH_TOKEN_KEY, newRefreshToken]
             ]);
                     
             originalRequest.headers.Authorization = `Bearer ${token}`;
             return this.instance(originalRequest);
           } catch (refreshError) {
             // Token refresh failed, log out user
-            await AsyncStorage.multiRemove(['authToken', 'refreshToken']);
+            await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, REFRESH_TOKEN_KEY]);
             // App should redirect to login
             return Promise.reject(refreshError);
           }

@@ -12,8 +12,6 @@ import {
   verifyPublicOTP
 } from '../controllers/new-otp.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
-import { rateLimiter } from '../../middleware/rate-limiter.js';
-
 const router = Router();
 
 /**
@@ -21,14 +19,14 @@ const router = Router();
  * @desc Send an OTP to a user
  * @access Private - Authenticated users only
  */
-router.post('/send', authenticate, rateLimiter({ windowMs: 60000, max: 5 }), sendOTP);
+router.post('/send', authenticate, sendOTP);
 
 /**
  * @route POST /api/v1/mongo/otp/resend
  * @desc Resend an OTP to a user
  * @access Private - Authenticated users only
  */
-router.post('/resend', authenticate, rateLimiter({ windowMs: 60000, max: 3 }), resendOTP);
+router.post('/resend', authenticate, resendOTP);
 
 /**
  * @route POST /api/v1/mongo/otp/verify
@@ -49,7 +47,7 @@ router.get('/status/:userId/:type', authenticate, getOTPStatus);
  * @desc Request an OTP for a public user (without authentication)
  * @access Public
  */
-router.post('/public/request', rateLimiter({ windowMs: 60000, max: 3 }), requestPublicOTP);
+router.post('/public/request', requestPublicOTP);
 
 /**
  * @route POST /api/v1/mongo/otp/public/verify

@@ -1,4 +1,12 @@
-import { apiClient, ApiError, ApiResponse } from '../client';
+import { apiClient, ApiError } from '../apiClient';
+import { enhancedNetworkService } from '../../services/enhanced-network.service';
+
+// Define API response type
+interface ApiResponse<T> {
+  status: string;
+  data: T;
+  message?: string;
+}
 
 export interface RiderStats {
   riderId: string;
@@ -26,8 +34,12 @@ const getRiderStats = async (riderId?: string): Promise<RiderStats> => {
     const params: any = {};
     if (riderId) params.riderId = riderId;
 
-    // Make API request
-    const response = await apiClient.get<ApiResponse<RiderStats>>('/users/rider-stats', { params });
+    // Make API request with enhanced network service for caching support
+    const response = await enhancedNetworkService.get<ApiResponse<RiderStats>>(
+      '/users/rider-stats',
+      'cache-first', // Use cache-first strategy to improve reliability
+      params
+    );
     
     // Return the data
     if (!response.data) {
@@ -78,8 +90,12 @@ const getPerformanceTrend = async (timeframe: 'weekly' | 'monthly' | 'yearly', r
       lastUpdated: string;
     }
 
-    // Make API request
-    const response = await apiClient.get<ApiResponse<PerformanceTrendResponse>>('/users/performance-trend', { params });
+    // Make API request with enhanced network service
+    const response = await enhancedNetworkService.get<ApiResponse<PerformanceTrendResponse>>(
+      '/users/performance-trend',
+      'cache-first',
+      params
+    );
     
     // Return the data
     if (!response.data) {
@@ -130,8 +146,12 @@ const getRiderActivity = async (startDate: string, endDate: string, riderId?: st
       };
     }
 
-    // Make API request
-    const response = await apiClient.get<ApiResponse<ActivityResponse>>('/users/activity', { params });
+    // Make API request with enhanced network service
+    const response = await enhancedNetworkService.get<ApiResponse<ActivityResponse>>(
+      '/users/activity',
+      'cache-first',
+      params
+    );
     
     // Return the data
     if (!response.data) {

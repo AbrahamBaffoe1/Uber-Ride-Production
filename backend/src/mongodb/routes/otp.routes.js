@@ -3,7 +3,7 @@
  * Defines API endpoints for OTP generation, verification, and management
  */
 import express from 'express';
-import { authenticate } from '../../middlewares/auth.middleware.js';
+import { authenticate } from '../middlewares/auth.middleware.js';
 import * as otpController from '../controllers/otp.controller.js';
 
 const router = express.Router();

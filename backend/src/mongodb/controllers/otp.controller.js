@@ -3,11 +3,11 @@
  * Handles API endpoints for OTP generation, verification, and management using MongoDB
  * Uses the robust Twilio OTP service for secure OTP handling
  */
-const otpService = require('../../services/mongo-otp.service'); // Legacy service
-const twilioOtpService = require('../../services/twilio-otp.service'); // New robust service
-const realtimeOtpService = require('../../services/realtime-otp.service'); // Realtime service
-const User = require('../models/User');
-const { createTokenPair, createResetToken } = require('../../services/crypto.service');
+import * as otpService from '../../services/mongo-otp.service.js'; // Legacy service
+import * as twilioOtpService from '../../services/twilio-otp.service.js'; // New robust service
+import * as realtimeOtpService from '../../services/realtime-otp.service.js'; // Realtime service
+import User from '../models/User.js';
+import cryptoService from '../../services/crypto.service.js';
 
 // Use the Twilio OTP service as the primary service
 const primaryOtpService = twilioOtpService;
@@ -16,7 +16,7 @@ const primaryOtpService = twilioOtpService;
  * Generate and send an OTP via SMS or email
  * @route POST /api/v1/mongo/otp/send
  */
-exports.sendOTP = async (req, res) => {
+export const sendOTP = async (req, res) => {
   try {
     // Support both 'method' and 'channel' parameters for compatibility
     const { userId, method, channel, identifier, phoneNumber, email, type = 'verification' } = req.body;
@@ -137,7 +137,7 @@ exports.sendOTP = async (req, res) => {
  * Generate and send an OTP via SMS
  * @route POST /api/v1/mongo/otp/sms
  */
-exports.generateSMSOTP = async (req, res) => {
+export const generateSMSOTP = async (req, res) => {
   try {
     const { userId, phoneNumber, type = 'verification' } = req.body;
     
@@ -201,7 +201,7 @@ exports.generateSMSOTP = async (req, res) => {
  * Generate and send an OTP via email
  * @route POST /api/v1/mongo/otp/email
  */
-exports.generateEmailOTP = async (req, res) => {
+export const generateEmailOTP = async (req, res) => {
   try {
     const { userId, email, type = 'verification' } = req.body;
     
@@ -274,7 +274,7 @@ exports.generateEmailOTP = async (req, res) => {
  * Verify an OTP
  * @route POST /api/v1/mongo/otp/verify
  */
-exports.verifyOTP = async (req, res) => {
+export const verifyOTP = async (req, res) => {
   try {
     const { userId, code, type = 'verification' } = req.body;
     
@@ -338,7 +338,7 @@ exports.verifyOTP = async (req, res) => {
     // For login type, generate auth tokens
     let tokens = null;
     if (type === 'login') {
-      tokens = await createTokenPair(user.id);
+      tokens = await cryptoService.createTokenPair(user.id);
     }
 
     // Return success response
@@ -364,7 +364,7 @@ exports.verifyOTP = async (req, res) => {
  * Resend an OTP
  * @route POST /api/v1/mongo/otp/resend
  */
-exports.resendOTP = async (req, res) => {
+export const resendOTP = async (req, res) => {
   try {
     // Support both 'method' and 'channel' parameters for compatibility
     const { userId, method, channel, identifier, phoneNumber, email, type = 'verification' } = req.body;
@@ -470,7 +470,7 @@ exports.resendOTP = async (req, res) => {
  * Get OTP status
  * @route GET /api/v1/mongo/otp/status/:userId/:type
  */
-exports.getOTPStatus = async (req, res) => {
+export const getOTPStatus = async (req, res) => {
   try {
     const { userId, type } = req.params;
     
@@ -533,7 +533,7 @@ exports.getOTPStatus = async (req, res) => {
  * Request an OTP for public users (signup, password reset)
  * @route POST /api/v1/mongo/otp/public/request
  */
-exports.requestPublicOTP = async (req, res) => {
+export const requestPublicOTP = async (req, res) => {
   try {
     const { channel, type = 'verification', email, phoneNumber } = req.body;
     
@@ -635,7 +635,7 @@ exports.requestPublicOTP = async (req, res) => {
  * Verify an OTP for public users
  * @route POST /api/v1/mongo/otp/public/verify
  */
-exports.verifyPublicOTP = async (req, res) => {
+export const verifyPublicOTP = async (req, res) => {
   try {
     const { userId, code, type = 'verification' } = req.body;
     
@@ -700,7 +700,7 @@ exports.verifyPublicOTP = async (req, res) => {
     let resetToken = null;
     if (type === 'passwordReset') {
       // Generate a reset token (this would be a function in your crypto service)
-      resetToken = await createResetToken(userId);
+      resetToken = await cryptoService.createResetToken(userId);
     }
 
     // Return success response

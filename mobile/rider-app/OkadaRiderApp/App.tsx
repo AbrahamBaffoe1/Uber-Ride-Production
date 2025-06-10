@@ -8,8 +8,10 @@ import RootNavigator from '../OkadaRiderApp/src/screens/navigation/RootNavigator
 import FlashMessage from 'react-native-flash-message';
 import { authService } from './src/api/services/authService';
 import NetworkStatusIndicator from './src/components/common/NetworkStatusIndicator';
-import { apiClient } from './src/api/client';
-import networkService from './src/services/network.service';
+import { apiClient } from './src/api/apiClient';
+import { enhancedNetworkService } from './src/services/enhanced-network.service';
+import { socketService } from './src/api/services/socket.service';
+import { AuthStatus } from './src/constants/auth';
 
 // Create a context to track authentication state throughout the app
 export const AuthContext = createContext<{
@@ -39,12 +41,23 @@ const App = () => {
   const [userId, setUserId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
 
-  // Cleanup resources when app is unmounted
+  // Initialize and cleanup resources
   useEffect(() => {
+    // Initialize enhanced network service
+    enhancedNetworkService.initialize();
+    
+    // Initialize socket service after app loads
+    setTimeout(() => {
+      socketService.initialize().catch(err => {
+        console.warn('Socket initialization error:', err);
+      });
+    }, 1000);
+    
+    // Cleanup resources when app is unmounted
     return () => {
       // Cleanup network-related resources
-      networkService.cleanup();
-      apiClient.cleanup();
+      enhancedNetworkService.destroy();
+      socketService.disconnect();
     };
   }, []);
 

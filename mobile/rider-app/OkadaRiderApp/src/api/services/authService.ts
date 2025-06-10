@@ -3,6 +3,8 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { otpService, OTPResponse } from './otpService';
 import { API_BASE_URL } from '../config';
+import { AUTH_TOKEN_KEY, REFRESH_TOKEN_KEY } from '../../constants/auth';
+import { enhancedNetworkService } from '../../services/enhanced-network.service';
 
 export interface User {
   _id: string;
@@ -120,8 +122,8 @@ class AuthService {
       
       // Store tokens
       await AsyncStorage.multiSet([
-        ['authToken', apiResponse.data.token],
-        ['refreshToken', apiResponse.data.refreshToken]
+        [AUTH_TOKEN_KEY, apiResponse.data.token],
+        [REFRESH_TOKEN_KEY, apiResponse.data.refreshToken]
       ]);
       
       this.currentUser = user;
@@ -215,11 +217,11 @@ class AuthService {
       
       // Store tokens - MongoDB auth should return both tokens
       const tokensToStore: [string, string][] = [
-        ['authToken', response.data.token]
+        [AUTH_TOKEN_KEY, response.data.token]
       ];
       
       if (response.data.refreshToken) {
-        tokensToStore.push(['refreshToken', response.data.refreshToken]);
+        tokensToStore.push([REFRESH_TOKEN_KEY, response.data.refreshToken]);
         console.log('Refresh token received and stored');
       } else {
         console.warn('No refresh token received during registration');
@@ -266,7 +268,7 @@ class AuthService {
     }
     
     try {
-      const token = await AsyncStorage.getItem('authToken');
+      const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
       if (!token) {
         return null;
       }
@@ -338,7 +340,7 @@ class AuthService {
     } catch (error) {
       console.error('Error logging out:', error);
     } finally {
-      await AsyncStorage.multiRemove(['authToken', 'refreshToken']);
+      await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, REFRESH_TOKEN_KEY]);
       this.currentUser = null;
       this.notifyAuthStateChanged();
     }
@@ -566,14 +568,14 @@ class AuthService {
   
   // Get auth token (used by RidesScreen)
   async getAuthToken(): Promise<string> {
-    const token = await AsyncStorage.getItem('authToken');
+    const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
     return token || '';
   }
   
   // Refresh token (used by RidesScreen) - Using MongoDB backend
   async handleTokenRefresh(): Promise<void> {
     try {
-      const refreshToken = await AsyncStorage.getItem('refreshToken');
+      const refreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
       if (!refreshToken) {
         throw new Error('No refresh token available');
       }
@@ -593,10 +595,10 @@ class AuthService {
       }
       
       // Store new access token
-      await AsyncStorage.setItem('authToken', response.data.token);
+      await AsyncStorage.setItem(AUTH_TOKEN_KEY, response.data.token);
       
       // Store new refresh token (always provided with our updated backend)
-      await AsyncStorage.setItem('refreshToken', response.data.refreshToken);
+      await AsyncStorage.setItem(REFRESH_TOKEN_KEY, response.data.refreshToken);
     } catch (error) {
       console.error('Token refresh error:', error);
       await this.logout();

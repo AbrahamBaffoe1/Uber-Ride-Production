@@ -170,6 +170,106 @@ export default function(riderConnection) {
     }
   });
 
+  /**
+   * @route GET /api/v1/rider/rides/active
+   * @desc Get rider's active rides
+   * @access Private - Riders only
+   */
+  router.get('/rides/active', authenticate, hasAnyRole(['rider']), async (req, res) => {
+    try {
+      const riderId = req.user.id || req.user._id;
+      
+      // Find active rides for the rider
+      const activeRides = await Ride.find({
+        riderId,
+        status: { $in: ['accepted', 'in_progress', 'arrived', 'picked_up'] }
+      }).sort({ createdAt: -1 });
+      
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          rides: activeRides.map(ride => ({
+            id: ride._id,
+            passengerId: ride.passengerId,
+            status: ride.status,
+            pickupLocation: ride.pickupLocation,
+            destination: ride.destination,
+            fare: ride.fare,
+            estimatedDuration: ride.estimatedDuration,
+            createdAt: ride.createdAt,
+            acceptedAt: ride.acceptedAt,
+            arrivedAt: ride.arrivedAt,
+            pickedUpAt: ride.pickedUpAt
+          }))
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching active rides:', error);
+      
+      return res.status(500).json({
+        status: 'error',
+        message: error.message || 'Failed to fetch active rides'
+      });
+    }
+  });
+
+  /**
+   * @route PUT /api/v1/rider/rides/:rideId/status
+   * @desc Update ride status
+   * @access Private - Riders only
+   */
+  router.put('/rides/:rideId/status', authenticate, hasAnyRole(['rider']), async (req, res) => {
+    try {
+      const riderId = req.user.id || req.user._id;
+      const { rideId } = req.params;
+      const { status, location } = req.body;
+      
+      // Validate status
+      const allowedStatuses = ['accepted', 'arrived', 'picked_up', 'completed', 'cancelled'];
+      if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Invalid status'
+        });
+      }
+      
+      // Find and update the ride
+      const ride = await Ride.findOneAndUpdate(
+        { _id: rideId, riderId },
+        { 
+          status,
+          ...(status === 'accepted' && { acceptedAt: new Date() }),
+          ...(status === 'arrived' && { arrivedAt: new Date() }),
+          ...(status === 'picked_up' && { pickedUpAt: new Date() }),
+          ...(status === 'completed' && { completedAt: new Date() }),
+          ...(location && { riderLocation: location }),
+          updatedAt: new Date()
+        },
+        { new: true }
+      );
+      
+      if (!ride) {
+        return res.status(404).json({
+          status: 'error',
+          message: 'Ride not found or not authorized'
+        });
+      }
+      
+      return res.status(200).json({
+        status: 'success',
+        message: `Ride status updated to ${status}`,
+        data: { ride }
+      });
+    } catch (error) {
+      console.error('Error updating ride status:', error);
+      
+      return res.status(500).json({
+        status: 'error',
+        message: error.message || 'Failed to update ride status'
+      });
+    }
+  });
+
   // Add more rider-specific routes as needed
 
   return router;

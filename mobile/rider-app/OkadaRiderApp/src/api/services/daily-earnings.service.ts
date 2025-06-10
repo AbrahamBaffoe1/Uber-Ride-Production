@@ -1,4 +1,12 @@
-import { apiClient, ApiError, ApiResponse } from '../client';
+import { apiClient, ApiError } from '../apiClient';
+import { enhancedNetworkService } from '../../services/enhanced-network.service';
+
+// Define API response type
+interface ApiResponse<T> {
+  status: string;
+  data: T;
+  message?: string;
+}
 
 export interface DailyEarnings {
   date: string;
@@ -20,8 +28,12 @@ const getDailyEarnings = async (date: string, riderId?: string): Promise<DailyEa
     const params: any = { date };
     if (riderId) params.riderId = riderId;
 
-    // Make API request with the correct response type
-    const response = await apiClient.get<ApiResponse<DailyEarnings>>('/earnings/daily', { params });
+    // Make API request with the enhanced network service for caching support
+    const response = await enhancedNetworkService.get<ApiResponse<DailyEarnings>>(
+      '/earnings/daily', 
+      'cache-first', // Use cache-first strategy to improve reliability
+      params
+    );
     
     // Return the data
     if (!response.data) {
@@ -76,7 +88,11 @@ const getWeeklyEarnings = async (weekStartDate: string, riderId?: string) => {
     }
     
     // Make API request with the correct response type
-    const response = await apiClient.get<ApiResponse<WeeklyEarningsResponse>>('/earnings/weekly', { params });
+    const response = await enhancedNetworkService.get<ApiResponse<WeeklyEarningsResponse>>(
+      '/earnings/weekly', 
+      'cache-first',
+      params
+    );
     
     // Return the data
     if (!response.data) {
@@ -126,7 +142,11 @@ const getMonthlyEarnings = async (year: number, month: number, riderId?: string)
     }
     
     // Make API request with the correct response type
-    const response = await apiClient.get<ApiResponse<MonthlyEarningsResponse>>('/earnings/monthly', { params });
+    const response = await enhancedNetworkService.get<ApiResponse<MonthlyEarningsResponse>>(
+      '/earnings/monthly', 
+      'cache-first',
+      params
+    );
     
     // Return the data
     if (!response.data) {

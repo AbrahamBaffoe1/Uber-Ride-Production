@@ -4,8 +4,8 @@
  */
 import mongoose from 'mongoose';
 import crypto from 'crypto';
-import emailService from './email.service.js';
-import smsService from './sms.service.js';
+import * as emailService from './email.service.js';
+import * as smsService from './sms.service.js';
 
 // Import models dynamically to avoid circular dependencies
 let OTP, User;

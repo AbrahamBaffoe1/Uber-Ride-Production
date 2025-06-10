@@ -2,12 +2,12 @@
  * Twilio OTP Service
  * Handles OTP generation, verification, and management using Twilio Verify API
  */
-const OTP = require('../mongodb/models/OTP');
-const User = require('../mongodb/models/User');
-const mongoose = require('mongoose');
-const crypto = require('crypto');
-const emailService = require('./email.service');
-const smsService = require('./sms.service');
+import OTP from '../mongodb/models/OTP.js';
+import User from '../mongodb/models/User.js';
+import mongoose from 'mongoose';
+import crypto from 'crypto';
+import * as emailService from './email.service.js';
+import * as smsService from './sms.service.js';
 
 // OTP configuration
 const OTP_LENGTH = 6;
@@ -19,7 +19,7 @@ let twilioClient;
 let verifyService;
 
 try {
-  const twilio = require('twilio');
+  const { default: twilio } = await import('twilio');
   twilioClient = twilio(
     process.env.TWILIO_ACCOUNT_SID,
     process.env.TWILIO_AUTH_TOKEN
@@ -382,7 +382,7 @@ const invalidateOTPs = async (userId, type) => {
   }
 };
 
-module.exports = {
+export {
   generateOTPCode,
   sendOTPviaSMS,
   sendOTPviaEmail,

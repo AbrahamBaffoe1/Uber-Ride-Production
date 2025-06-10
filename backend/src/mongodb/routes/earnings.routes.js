@@ -7,14 +7,14 @@ import { authenticate } from '../middlewares/auth.middleware.js';
 import mongoose from 'mongoose';
 const { ObjectId } = mongoose.Types;
 import User from '../models/User.js';
-import loggingService from '../../services/logging.service.js';
+import { log } from '../../services/logging.service.js';
 
 // Create a simple logger that uses the logging service
 const logger = {
-  info: (message, metadata = {}) => loggingService.log('earnings', 'info', message, metadata),
-  error: (message, metadata = {}) => loggingService.log('earnings', 'error', message, metadata),
-  warn: (message, metadata = {}) => loggingService.log('earnings', 'warn', message, metadata),
-  debug: (message, metadata = {}) => loggingService.log('earnings', 'debug', message, metadata)
+  info: (message, metadata = {}) => log('earnings', 'info', message, metadata),
+  error: (message, metadata = {}) => log('earnings', 'error', message, metadata),
+  warn: (message, metadata = {}) => log('earnings', 'warn', message, metadata),
+  debug: (message, metadata = {}) => log('earnings', 'debug', message, metadata)
 };
 
 const router = express.Router();
