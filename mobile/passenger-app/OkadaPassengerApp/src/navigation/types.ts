@@ -177,6 +177,11 @@ export type RootStackParamList = {
   Home: undefined;
   MainApp: undefined;
   
+  // Muneef Design Screens
+  ModernHome: undefined;
+  ModernBooking: { destination?: DestinationData } | undefined;
+  UberHome: undefined;
+  
   // Core features
   Booking: { destination?: DestinationData } | undefined;
   Payment: undefined;

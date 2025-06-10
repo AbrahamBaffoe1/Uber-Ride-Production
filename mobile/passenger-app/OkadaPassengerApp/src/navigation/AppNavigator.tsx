@@ -10,6 +10,11 @@ import ModernHomeScreen from '../screens/home/ModernHomeScreen';
 import ModernBookingScreen from '../screens/booking/ModernBookingScreen';
 import HomeScreenUber from '../screens/home/HomeScreenUber';
 
+// Import Muneef design screens
+import MuneefSignUpScreen from '../screens/auth/MuneefSignUpScreen';
+import MuneefHomeScreen from '../screens/home/MuneefHomeScreen';
+import MuneefRideDetailsScreen from '../screens/booking/MuneefRideDetailsScreen';
+
 // Import other existing screens
 import SplashScreen from '../screens/splash/SplashScreen';
 import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
@@ -77,14 +82,14 @@ export default function AppNavigator() {
 
         {/* Auth Screens */}
         <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="SignUp" component={SignUpScreen} />
+        <Stack.Screen name="SignUp" component={MuneefSignUpScreen} />
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         <Stack.Screen name="AuthSuccess" component={AuthSuccessScreen} />
         <Stack.Screen name="AuthError" component={AuthErrorScreen} />
         
-        {/* Main App Screens - Using Modern UI */}
-        <Stack.Screen name="Home" component={ModernHomeScreen} />
-        <Stack.Screen name="Booking" component={ModernBookingScreen} />
+        {/* Main App Screens - Using Muneef UI Design */}
+        <Stack.Screen name="Home" component={MuneefHomeScreen} />
+        <Stack.Screen name="Booking" component={MuneefRideDetailsScreen} />
         
         {/* Other Screens */}
         <Stack.Screen name="Tracking" component={RideTrackingScreen} />

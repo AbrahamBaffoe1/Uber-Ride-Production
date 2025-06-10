@@ -19,16 +19,16 @@ const getLocalhost = () => {
 };
 
 // For development overrides - uncomment and set your machine's IP if needed
-// const DEV_MACHINE_IP = '192.168.1.x'; // Set to your local network IP for physical device testing
+const DEV_MACHINE_IP = '127.0.0.1'; // Using localhost IP for consistent connectivity
 
 // Set the base URL for all API calls based on environment
 export const API_BASE_URL = __DEV__ 
-  ? `http://${getLocalhost()}:3001/api/v1/mongo`  // Development backend URL using MongoDB
+  ? `http://${DEV_MACHINE_IP}:3001/api/v1/mongo`  // Development backend URL using MongoDB
   : 'https://api.okada-transportation.com/api/v1/mongo'; // Production MongoDB URL
 
 // WebSocket URL for real-time communication
 export const SOCKET_URL = __DEV__
-  ? `http://${getLocalhost()}:3001`
+  ? `http://${DEV_MACHINE_IP}:3001`
   : 'https://api.okada-transportation.com';
 
 // API endpoint paths organized by feature

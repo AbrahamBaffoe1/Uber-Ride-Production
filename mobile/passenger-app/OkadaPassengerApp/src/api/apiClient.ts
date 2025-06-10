@@ -143,6 +143,23 @@ class ApiClient {
         data: error.response?.data
       });
       
+      // Network error handling
+      if (error.message === 'Network Error') {
+        console.error('Network connectivity issue detected');
+        
+        // Create a more informative error
+        const enhancedError = new Error(
+          'Unable to connect to the server. Please check your internet connection and try again.'
+        );
+        
+        // Add additional context for debugging
+        (enhancedError as any).originalError = error;
+        (enhancedError as any).endpoint = endpoint;
+        (enhancedError as any).isNetworkError = true;
+        
+        throw enhancedError;
+      }
+      
       // MongoDB-specific error handling
       if (error.response?.data?.error) {
         throw new Error(error.response.data.error);
