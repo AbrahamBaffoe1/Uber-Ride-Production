@@ -11,6 +11,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../../navigation/types';
 import CurvyFooter from '../../components/common/CurvyFooter';
 
 // Mock data for ride history
@@ -104,8 +106,12 @@ const FILTER_OPTIONS = [
   { id: 'cancelled', label: 'Cancelled' },
 ];
 
+type RideHistoryScreenNavigationProp = StackNavigationProp<
+  RootStackParamList
+>;
+
 export const RideHistoryScreen: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<RideHistoryScreenNavigationProp>();
   const [activeFilter, setActiveFilter] = useState('all');
   
   // Filter rides based on active filter
@@ -243,11 +249,17 @@ export const RideHistoryScreen: React.FC = () => {
   // Footer tab icons
   const renderFooterTabs = () => (
     <>
-      <TouchableOpacity style={styles.footerTab}>
+      <TouchableOpacity 
+        style={styles.footerTab}
+        onPress={() => navigation.navigate('Home')}
+      >
         <Ionicons name="home-outline" size={24} color="#9CA3AF" />
       </TouchableOpacity>
       
-      <TouchableOpacity style={styles.footerTab}>
+      <TouchableOpacity 
+        style={styles.footerTab}
+        onPress={() => navigation.navigate('ScheduleRide')}
+      >
         <Ionicons name="calendar-outline" size={24} color="#9CA3AF" />
       </TouchableOpacity>
       
@@ -255,7 +267,10 @@ export const RideHistoryScreen: React.FC = () => {
         <Ionicons name="time" size={24} color="#7AC231" />
       </TouchableOpacity>
       
-      <TouchableOpacity style={styles.footerTab}>
+      <TouchableOpacity 
+        style={styles.footerTab}
+        onPress={() => navigation.navigate('Profile')}
+      >
         <Ionicons name="person-outline" size={24} color="#9CA3AF" />
       </TouchableOpacity>
     </>
@@ -267,6 +282,12 @@ export const RideHistoryScreen: React.FC = () => {
       
       {/* Screen header */}
       <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="chevron-back" size={24} color="#000000" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Ride History</Text>
       </View>
       
@@ -310,11 +331,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 15,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+  },
+  backButton: {
+    marginRight: 16,
   },
   headerTitle: {
     fontSize: 20,

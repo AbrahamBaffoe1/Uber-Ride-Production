@@ -631,6 +631,39 @@ export default function ModernHomeScreen({ navigation }: Props) {
               <Text style={styles.menuItemIcon}>❓</Text>
               <Text style={styles.menuItemText}>Help & Support</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => {
+                toggleMenu();
+                navigation.navigate('Profile');
+              }}
+            >
+              <Text style={styles.menuItemIcon}>👤</Text>
+              <Text style={styles.menuItemText}>Profile</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => {
+                toggleMenu();
+                navigation.navigate('Notifications');
+              }}
+            >
+              <Text style={styles.menuItemIcon}>🔔</Text>
+              <Text style={styles.menuItemText}>Notifications</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => {
+                toggleMenu();
+                navigation.navigate('Rewards');
+              }}
+            >
+              <Text style={styles.menuItemIcon}>🏆</Text>
+              <Text style={styles.menuItemText}>Rewards</Text>
+            </TouchableOpacity>
           </ScrollView>
 
           <TouchableOpacity 

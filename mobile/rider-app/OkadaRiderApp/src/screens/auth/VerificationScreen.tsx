@@ -147,19 +147,12 @@ const VerificationScreen: React.FC = () => {
     try {
       setResendLoading(true);
       
-      if (contactMethod === 'email' && email) {
-        await otpService.requestEmailOTP({ 
-          type: 'verification',
-          email
-        });
-      } else if (contactMethod === 'phone' && phoneNumber) {
-        await otpService.requestSMSOTP({ 
-          type: 'verification',
-          phoneNumber
-        });
-      } else {
-        throw new Error('No valid contact method available');
-      }
+      // Use the auth service to handle resending verification code
+      await authService.resendVerificationCode(
+        userId, 
+        contactMethod === 'email' ? 'email' : 'phone',
+        contactMethod === 'email' ? email : phoneNumber
+      );
       
       // Reset countdown
       setCountdown(60);
@@ -191,8 +184,15 @@ const VerificationScreen: React.FC = () => {
     try {
       setIsLoading(true);
       
-      // Call verification API
-      await authService.verifyOTP(userId, otpCode, 'verification');
+      // Call verification API with improved error handling
+      const result = await authService.verifyOTP(userId, otpCode, 'verification');
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Invalid verification code');
+      }
+      
+      // Update verification status
+      await authService.getCurrentUser();
       
       // Verification successful
       setIsLoading(false);
@@ -204,7 +204,7 @@ const VerificationScreen: React.FC = () => {
           {
             text: 'Continue',
             onPress: () => {
-              // Navigate to main screen or login
+              // Navigate to main screen
               navigation.reset({
                 index: 0,
                 routes: [{ name: 'Main' }],
