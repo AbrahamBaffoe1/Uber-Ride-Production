@@ -1,51 +1,34 @@
 /**
  * OTP Analytics Routes
- * Defines API endpoints for OTP analytics using the MongoDB OTP analytics service
+ * Defines API endpoints for OTP analytics
  */
-const express = require('express');
-const { authenticate } = require('../middlewares/auth.middleware');
-const { otpAnalyticsService } = require('../services/otp-analytics.service');
+import express from 'express';
+import { authenticate } from '../middlewares/auth.middleware.js';
+import { hasAnyRole } from '../middlewares/role.middleware.js';
+import * as otpAnalyticsService from '../../services/otp-analytics.service.js';
+import { log } from '../../services/logging.service.js';
+
 const router = express.Router();
 
 /**
  * @route GET /api/v1/analytics/otp
  * @desc Get OTP analytics data with various filters
- * @access Public (for development only)
+ * @access Private (Admin)
  */
-router.get('/', async (req, res) => {
+router.get('/', authenticate, hasAnyRole(['admin']), async (req, res) => {
   try {
-    // In a production app, check admin role
-    // if (!req.user.isAdmin) {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: 'Unauthorized: Admin access required'
-    //   });
-    // }
-    
-    // Parse query parameters with defaults
-    const timeframe = req.query.timeframe || 'weekly';
-    const type = req.query.type || 'all';
-    
-    // Parse date range if provided
-    let startDate, endDate;
-    if (req.query.startDate) {
-      startDate = new Date(req.query.startDate);
-    }
-    if (req.query.endDate) {
-      endDate = new Date(req.query.endDate);
-    }
+    const { timeframe = 'week', startDate, endDate } = req.query;
     
     // Fetch analytics data from the service
     const analyticsData = await otpAnalyticsService.getOtpAnalytics({
       timeframe,
-      type,
       startDate,
       endDate
     });
     
     return res.status(analyticsData.success ? 200 : 400).json(analyticsData);
   } catch (error) {
-    console.error('OTP analytics error:', error);
+    log('otp', 'error', 'OTP analytics error', { error: error.message });
     return res.status(500).json({
       success: false,
       message: 'Failed to get OTP analytics',
@@ -57,72 +40,39 @@ router.get('/', async (req, res) => {
 /**
  * @route GET /api/v1/analytics/otp/report
  * @desc Generate an OTP analytics report
- * @access Public (for development only)
+ * @access Private (Admin)
  */
-router.get('/report', async (req, res) => {
+router.get('/report', authenticate, hasAnyRole(['admin']), async (req, res) => {
   try {
-    // In a production app, check admin role
-    // if (!req.user.isAdmin) {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: 'Unauthorized: Admin access required'
-    //   });
-    // }
+    const { timeframe = 'month', format = 'json', startDate, endDate } = req.query;
     
-    // Parse query parameters with defaults
-    const timeframe = req.query.timeframe || 'weekly';
-    const type = req.query.type || 'all';
+    // Generate a detailed report using the analytics service
+    const reportData = await otpAnalyticsService.generateOtpReport({
+      timeframe,
+      format,
+      startDate,
+      endDate
+    });
     
-    // Parse date range (required for reports)
-    let startDate = new Date();
-    let endDate = new Date();
-    
-    if (timeframe === 'daily') {
-      startDate.setDate(startDate.getDate() - 1);
-    } else if (timeframe === 'weekly') {
-      startDate.setDate(startDate.getDate() - 7);
-    } else if (timeframe === 'monthly') {
-      startDate.setMonth(startDate.getMonth() - 1);
-    }
-    
-    // Override with provided dates if available
-    if (req.query.startDate) {
-      startDate = new Date(req.query.startDate);
-    }
-    if (req.query.endDate) {
-      endDate = new Date(req.query.endDate);
-    }
-    
-    // Generate the report
-    try {
-      const reportPath = await otpAnalyticsService.generateAnalyticsReport({
-        timeframe,
-        type,
-        startDate,
-        endDate
-      });
-      
-      return res.status(200).json({
-        success: true,
-        data: {
-          reportPath,
-          timeframe,
-          type,
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString()
-        },
-        message: 'Report generated successfully'
-      });
-    } catch (reportError) {
-      console.error('Error generating report:', reportError);
-      return res.status(500).json({
+    if (!reportData.success) {
+      return res.status(400).json({
         success: false,
         message: 'Failed to generate analytics report',
-        error: reportError.message
+        error: reportData.message
       });
     }
+    
+    // Handle different formats if the service supports them
+    if (format === 'pdf' && reportData.fileUrl) {
+      return res.redirect(reportData.fileUrl);
+    } else if (format === 'csv' && reportData.fileUrl) {
+      return res.redirect(reportData.fileUrl);
+    }
+    
+    // Default to JSON response
+    return res.status(200).json(reportData);
   } catch (error) {
-    console.error('OTP analytics report error:', error);
+    log('otp', 'error', 'OTP analytics report error', { error: error.message });
     return res.status(500).json({
       success: false,
       message: 'Failed to generate OTP analytics report',
@@ -134,65 +84,18 @@ router.get('/report', async (req, res) => {
 /**
  * @route GET /api/v1/analytics/otp/summary
  * @desc Get summary metrics for a period (for quick dashboard stats)
- * @access Public (for development only)
+ * @access Private (Admin)
  */
-router.get('/summary', async (req, res) => {
+router.get('/summary', authenticate, hasAnyRole(['admin']), async (req, res) => {
   try {
-    // In a production app, check admin role
-    // if (!req.user.isAdmin) {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: 'Unauthorized: Admin access required'
-    //   });
-    // }
-    
-    // Parse query parameters
-    const period = req.query.period || 'daily';
-    
-    // Parse date range
-    let startDate = new Date();
-    let endDate = new Date();
-    
-    if (period === 'daily') {
-      startDate.setDate(startDate.getDate() - 1);
-    } else if (period === 'weekly') {
-      startDate.setDate(startDate.getDate() - 7);
-    } else if (period === 'monthly') {
-      startDate.setMonth(startDate.getMonth() - 1);
-    }
-    
-    // Override with provided dates if available
-    if (req.query.startDate) {
-      startDate = new Date(req.query.startDate);
-    }
-    if (req.query.endDate) {
-      endDate = new Date(req.query.endDate);
-    }
+    const { period = 'week' } = req.query;
     
     // Get summary metrics using the analytics service
-    try {
-      const result = await otpAnalyticsService.getSummaryMetrics({
-        createdAt: {
-          $gte: startDate,
-          $lte: endDate
-        }
-      });
-      
-      return res.status(200).json({
-        success: true,
-        data: result,
-        period
-      });
-    } catch (dbError) {
-      console.error('Error fetching summary metrics:', dbError);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to fetch summary metrics',
-        error: dbError.message
-      });
-    }
+    const summaryData = await otpAnalyticsService.getOtpSummaryMetrics(period);
+    
+    return res.status(summaryData.success ? 200 : 400).json(summaryData);
   } catch (error) {
-    console.error('OTP analytics summary error:', error);
+    log('otp', 'error', 'OTP analytics summary error', { error: error.message });
     return res.status(500).json({
       success: false,
       message: 'Failed to get OTP analytics summary',
@@ -204,59 +107,24 @@ router.get('/summary', async (req, res) => {
 /**
  * @route GET /api/v1/analytics/otp/delivery-methods
  * @desc Get OTP distribution by delivery method
- * @access Public (for development only)
+ * @access Private (Admin)
  */
-router.get('/delivery-methods', async (req, res) => {
+router.get('/delivery-methods', authenticate, hasAnyRole(['admin']), async (req, res) => {
   try {
-    // Parse date range
-    let startDate = new Date();
-    let endDate = new Date();
+    const { period = 'week', startDate, endDate } = req.query;
     
-    const period = req.query.period || 'weekly';
+    const deliveryMethodsData = await otpAnalyticsService.getOtpDeliveryMethods({
+      period,
+      startDate,
+      endDate
+    });
     
-    if (period === 'daily') {
-      startDate.setDate(startDate.getDate() - 1);
-    } else if (period === 'weekly') {
-      startDate.setDate(startDate.getDate() - 7);
-    } else if (period === 'monthly') {
-      startDate.setMonth(startDate.getMonth() - 1);
-    }
-    
-    // Override with provided dates if available
-    if (req.query.startDate) {
-      startDate = new Date(req.query.startDate);
-    }
-    if (req.query.endDate) {
-      endDate = new Date(req.query.endDate);
-    }
-    
-    // Get delivery method statistics
-    try {
-      const deliveryData = await otpAnalyticsService.getOtpByDeliveryMethod({
-        createdAt: {
-          $gte: startDate,
-          $lte: endDate
-        }
-      });
-      
-      return res.status(200).json({
-        success: true,
-        data: deliveryData,
-        period
-      });
-    } catch (dbError) {
-      console.error('Error fetching delivery method data:', dbError);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to fetch delivery method data',
-        error: dbError.message
-      });
-    }
+    return res.status(deliveryMethodsData.success ? 200 : 400).json(deliveryMethodsData);
   } catch (error) {
-    console.error('OTP delivery method error:', error);
+    log('otp', 'error', 'OTP delivery methods analytics error', { error: error.message });
     return res.status(500).json({
       success: false,
-      message: 'Failed to get OTP delivery method data',
+      message: 'Failed to get OTP delivery methods data',
       error: error.message
     });
   }
@@ -265,62 +133,28 @@ router.get('/delivery-methods', async (req, res) => {
 /**
  * @route GET /api/v1/analytics/otp/user-segments
  * @desc Get OTP distribution by user segment
- * @access Public (for development only)
+ * @access Private (Admin)
  */
-router.get('/user-segments', async (req, res) => {
+router.get('/user-segments', authenticate, hasAnyRole(['admin']), async (req, res) => {
   try {
-    // Parse date range
-    let startDate = new Date();
-    let endDate = new Date();
+    const { period = 'week', startDate, endDate } = req.query;
     
-    const period = req.query.period || 'weekly';
+    const userSegmentsData = await otpAnalyticsService.getOtpUserSegments({
+      period,
+      startDate,
+      endDate
+    });
     
-    if (period === 'daily') {
-      startDate.setDate(startDate.getDate() - 1);
-    } else if (period === 'weekly') {
-      startDate.setDate(startDate.getDate() - 7);
-    } else if (period === 'monthly') {
-      startDate.setMonth(startDate.getMonth() - 1);
-    }
-    
-    // Override with provided dates if available
-    if (req.query.startDate) {
-      startDate = new Date(req.query.startDate);
-    }
-    if (req.query.endDate) {
-      endDate = new Date(req.query.endDate);
-    }
-    
-    // Get user segment data
-    try {
-      const segmentData = await otpAnalyticsService.getUserSegmentDistribution({
-        createdAt: {
-          $gte: startDate,
-          $lte: endDate
-        }
-      });
-      
-      return res.status(200).json({
-        success: true,
-        data: segmentData,
-        period
-      });
-    } catch (dbError) {
-      console.error('Error fetching user segment data:', dbError);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to fetch user segment data',
-        error: dbError.message
-      });
-    }
+    return res.status(userSegmentsData.success ? 200 : 400).json(userSegmentsData);
   } catch (error) {
-    console.error('OTP user segment error:', error);
+    log('otp', 'error', 'OTP user segments analytics error', { error: error.message });
     return res.status(500).json({
       success: false,
-      message: 'Failed to get OTP user segment data',
+      message: 'Failed to get OTP user segments data',
       error: error.message
     });
   }
 });
 
-module.exports = router;
+
+export default router;

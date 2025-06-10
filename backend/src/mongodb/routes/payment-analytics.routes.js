@@ -1,10 +1,13 @@
 /**
  * Payment Analytics Routes
- * Defines API endpoints for payment analytics using the MongoDB payment analytics service
+ * Defines API endpoints for payment analytics
  */
-const express = require('express');
-const { authenticate } = require('../middlewares/auth.middleware');
-const { mongoPaymentAnalyticsService } = require('../services/payment-analytics.service');
+import express from 'express';
+import { authenticate } from '../middlewares/auth.middleware.js';
+import { hasAnyRole } from '../middlewares/role.middleware.js';
+import * as paymentAnalyticsService from '../../services/payment-analytics.service.js';
+import { log } from '../../services/logging.service.js';
+
 const router = express.Router();
 
 /**
@@ -12,40 +15,22 @@ const router = express.Router();
  * @desc Get payment analytics data with various filters
  * @access Private (Admin)
  */
-router.get('/', authenticate, async (req, res) => {
+router.get('/', authenticate, hasAnyRole(['admin']), async (req, res) => {
   try {
-    // In a production app, check admin role
-    // if (!req.user.isAdmin) {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: 'Unauthorized: Admin access required'
-    //   });
-    // }
-    
-    // Parse query parameters with defaults
-    const timeframe = req.query.timeframe || 'weekly';
-    const gateway = req.query.gateway || 'all';
-    
-    // Parse date range if provided
-    let startDate, endDate;
-    if (req.query.startDate) {
-      startDate = new Date(req.query.startDate);
-    }
-    if (req.query.endDate) {
-      endDate = new Date(req.query.endDate);
-    }
+    const { timeframe = 'week', startDate, endDate, paymentMethod, status } = req.query;
     
     // Fetch analytics data from the service
-    const analyticsData = await mongoPaymentAnalyticsService.getPaymentAnalytics({
+    const analyticsData = await paymentAnalyticsService.getPaymentAnalytics({
       timeframe,
-      gateway,
       startDate,
-      endDate
+      endDate,
+      paymentMethod,
+      status
     });
     
     return res.status(analyticsData.success ? 200 : 400).json(analyticsData);
   } catch (error) {
-    console.error('Payment analytics error:', error);
+    log('payment', 'error', 'Payment analytics error', { error: error.message });
     return res.status(500).json({
       success: false,
       message: 'Failed to get payment analytics',
@@ -59,70 +44,40 @@ router.get('/', authenticate, async (req, res) => {
  * @desc Generate a payment analytics report
  * @access Private (Admin)
  */
-router.get('/report', authenticate, async (req, res) => {
+router.get('/report', authenticate, hasAnyRole(['admin']), async (req, res) => {
   try {
-    // In a production app, check admin role
-    // if (!req.user.isAdmin) {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: 'Unauthorized: Admin access required'
-    //   });
-    // }
+    const { timeframe = 'month', format = 'json', startDate, endDate, paymentMethod } = req.query;
     
-    // Parse query parameters with defaults
-    const timeframe = req.query.timeframe || 'weekly';
-    const gateway = req.query.gateway || 'all';
+    // Generate a detailed report using the analytics service
+    const reportData = await paymentAnalyticsService.generatePaymentReport({
+      timeframe,
+      format,
+      startDate,
+      endDate,
+      paymentMethod
+    });
     
-    // Parse date range (required for reports)
-    let startDate = new Date();
-    let endDate = new Date();
-    
-    if (timeframe === 'daily') {
-      startDate.setDate(startDate.getDate() - 1);
-    } else if (timeframe === 'weekly') {
-      startDate.setDate(startDate.getDate() - 7);
-    } else if (timeframe === 'monthly') {
-      startDate.setMonth(startDate.getMonth() - 1);
-    }
-    
-    // Override with provided dates if available
-    if (req.query.startDate) {
-      startDate = new Date(req.query.startDate);
-    }
-    if (req.query.endDate) {
-      endDate = new Date(req.query.endDate);
-    }
-    
-    // Generate the report
-    try {
-      const reportPath = await mongoPaymentAnalyticsService.generateAnalyticsReport({
-        timeframe,
-        gateway,
-        startDate,
-        endDate
-      });
-      
-      return res.status(200).json({
-        success: true,
-        data: {
-          reportPath,
-          timeframe,
-          gateway,
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString()
-        },
-        message: 'Report generated successfully'
-      });
-    } catch (reportError) {
-      console.error('Error generating report:', reportError);
-      return res.status(500).json({
+    if (!reportData.success) {
+      return res.status(400).json({
         success: false,
         message: 'Failed to generate analytics report',
-        error: reportError.message
+        error: reportData.message
       });
     }
+    
+    // Handle different formats if the service supports them
+    if (format === 'pdf' && reportData.fileUrl) {
+      return res.redirect(reportData.fileUrl);
+    } else if (format === 'csv' && reportData.fileUrl) {
+      return res.redirect(reportData.fileUrl);
+    } else if (format === 'excel' && reportData.fileUrl) {
+      return res.redirect(reportData.fileUrl);
+    }
+    
+    // Default to JSON response
+    return res.status(200).json(reportData);
   } catch (error) {
-    console.error('Payment analytics report error:', error);
+    log('payment', 'error', 'Payment analytics report error', { error: error.message });
     return res.status(500).json({
       success: false,
       message: 'Failed to generate payment analytics report',
@@ -136,64 +91,20 @@ router.get('/report', authenticate, async (req, res) => {
  * @desc Get summary metrics for a period (for quick dashboard stats)
  * @access Private (Admin)
  */
-router.get('/summary', authenticate, async (req, res) => {
+router.get('/summary', authenticate, hasAnyRole(['admin']), async (req, res) => {
   try {
-    // In a production app, check admin role
-    // if (!req.user.isAdmin) {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: 'Unauthorized: Admin access required'
-    //   });
-    // }
+    const { period = 'week', currency, paymentMethod } = req.query;
     
-    // Parse query parameters
-    const period = req.query.period || 'daily';
+    // Get summary metrics using the analytics service
+    const summaryData = await paymentAnalyticsService.getPaymentSummaryMetrics({
+      period,
+      currency,
+      paymentMethod
+    });
     
-    // Parse date range
-    let startDate = new Date();
-    let endDate = new Date();
-    
-    if (period === 'daily') {
-      startDate.setDate(startDate.getDate() - 1);
-    } else if (period === 'weekly') {
-      startDate.setDate(startDate.getDate() - 7);
-    } else if (period === 'monthly') {
-      startDate.setMonth(startDate.getMonth() - 1);
-    }
-    
-    // Override with provided dates if available
-    if (req.query.startDate) {
-      startDate = new Date(req.query.startDate);
-    }
-    if (req.query.endDate) {
-      endDate = new Date(req.query.endDate);
-    }
-    
-    // Use a MongoDB aggregation directly for better performance
-    // This is used for simple dashboard KPIs
-    try {
-      const result = await mongoPaymentAnalyticsService.getSummaryMetrics({
-        createdAt: {
-          $gte: startDate,
-          $lte: endDate
-        }
-      });
-      
-      return res.status(200).json({
-        success: true,
-        data: result,
-        period
-      });
-    } catch (dbError) {
-      console.error('Error fetching summary metrics:', dbError);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to fetch summary metrics',
-        error: dbError.message
-      });
-    }
+    return res.status(summaryData.success ? 200 : 400).json(summaryData);
   } catch (error) {
-    console.error('Payment analytics summary error:', error);
+    log('payment', 'error', 'Payment analytics summary error', { error: error.message });
     return res.status(500).json({
       success: false,
       message: 'Failed to get payment analytics summary',
@@ -202,4 +113,57 @@ router.get('/summary', authenticate, async (req, res) => {
   }
 });
 
-module.exports = router;
+/**
+ * @route GET /api/v1/analytics/payments/methods
+ * @desc Get payment methods distribution
+ * @access Private (Admin)
+ */
+router.get('/methods', authenticate, hasAnyRole(['admin']), async (req, res) => {
+  try {
+    const { period = 'week', startDate, endDate } = req.query;
+    
+    const methodsData = await paymentAnalyticsService.getPaymentMethodsDistribution({
+      period,
+      startDate,
+      endDate
+    });
+    
+    return res.status(methodsData.success ? 200 : 400).json(methodsData);
+  } catch (error) {
+    log('payment', 'error', 'Payment methods analytics error', { error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get payment methods distribution data',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route GET /api/v1/analytics/payments/processing-times
+ * @desc Get payment processing times analysis
+ * @access Private (Admin)
+ */
+router.get('/processing-times', authenticate, hasAnyRole(['admin']), async (req, res) => {
+  try {
+    const { period = 'week', startDate, endDate, paymentMethod } = req.query;
+    
+    const processingTimeData = await paymentAnalyticsService.getPaymentProcessingTimes({
+      period,
+      startDate,
+      endDate,
+      paymentMethod
+    });
+    
+    return res.status(processingTimeData.success ? 200 : 400).json(processingTimeData);
+  } catch (error) {
+    log('payment', 'error', 'Payment processing times analytics error', { error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get payment processing times data',
+      error: error.message
+    });
+  }
+});
+
+export default router;

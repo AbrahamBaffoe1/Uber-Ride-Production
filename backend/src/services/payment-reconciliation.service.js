@@ -1,473 +1,433 @@
 /**
  * Payment Reconciliation Service
- * Handles payment verification, matching, and reconciliation
+ * 
+ * Handles payment reconciliation processes to match transactions with rides
  */
-const loggingService = require('./logging.service');
-// Create a simple logger that uses the logging service
-const logger = {
-  info: (message, metadata = {}) => loggingService.log('payment', 'info', message, metadata),
-  error: (message, metadata = {}) => loggingService.log('payment', 'error', message, metadata),
-  warn: (message, metadata = {}) => loggingService.log('payment', 'warn', message, metadata)
-};
-const Transaction = require('../mongodb/models/Transaction');
-const Ride = require('../mongodb/models/Ride');
-const mongoose = require('mongoose');
-const mongoPaymentService = require('../mongodb/services/mongo-payment.service');
-const emailService = require('./email.service');
+import { log } from './logging.service.js';
+import Transaction from '../mongodb/models/Transaction.js';
+import Ride from '../mongodb/models/Ride.js';
 
 /**
- * Find unmatched transactions from payment gateway
- * @param {Date} startDate - Start date for search
- * @param {Date} endDate - End date for search
- * @param {String} provider - Payment provider name
- * @returns {Promise<Array>} - List of unmatched transactions
+ * Find transactions that haven't been matched to a ride
+ * @param {string} startDate - ISO string start date (optional)
+ * @param {string} endDate - ISO string end date (optional)
+ * @param {string} provider - Payment provider/method (optional)
+ * @returns {Promise<Array>} Array of unmatched transactions
  */
-const findUnmatchedTransactions = async (startDate, endDate, provider = 'paystack') => {
+export const findUnmatchedTransactions = async (startDate, endDate, provider) => {
   try {
-    // Find transactions with a gateway ID but no corresponding ride
-    const unmatchedTransactions = await Transaction.find({
-      gateway: provider,
-      status: 'completed',
-      type: 'ride_payment',
-      rideId: { $exists: false },
-      createdAt: { 
-        $gte: startDate, 
-        $lte: endDate || new Date() 
-      }
-    }).lean();
-
-    logger.info(`Found ${unmatchedTransactions.length} unmatched transactions`);
-    return {
-      success: true,
-      data: unmatchedTransactions
+    // Build query filter
+    const filter = {
+      rideId: { $exists: false }, // No associated ride
+      status: 'completed', // Only completed transactions
     };
+    
+    // Add date range if provided
+    if (startDate && endDate) {
+      filter.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+    
+    // Add payment provider/method filter if provided
+    if (provider) {
+      filter.paymentMethod = provider;
+    }
+    
+    // Find unmatched transactions
+    const unmatchedTransactions = await Transaction.find(filter)
+      .sort({ createdAt: -1 }) // Most recent first
+      .limit(100); // Limit results to avoid overwhelming response
+    
+    return unmatchedTransactions;
   } catch (error) {
-    logger.error('Error finding unmatched transactions:', error);
-    return {
-      success: false,
-      message: 'Failed to find unmatched transactions',
-      error: error.message
-    };
+    log('payment', 'error', 'Error finding unmatched transactions:', { error });
+    throw error;
   }
 };
 
 /**
- * Match a transaction to a ride
- * @param {String} transactionId - Transaction ID to match
- * @param {String} rideId - Ride ID to match with
- * @returns {Promise<Object>} - Result of matching operation
+ * Find rides that have been completed but not reconciled with a payment
+ * @param {string} startDate - ISO string start date (optional)
+ * @param {string} endDate - ISO string end date (optional)
+ * @returns {Promise<Array>} Array of unreconciled rides
  */
-const matchTransactionToRide = async (transactionId, rideId) => {
-  let session;
-
+export const findUnreconciledRides = async (startDate, endDate) => {
   try {
-    // Start a MongoDB transaction
-    session = await mongoose.startSession();
-    session.startTransaction();
-
-    // Get transaction and ride
-    const [transaction, ride] = await Promise.all([
-      Transaction.findById(transactionId).session(session),
-      Ride.findById(rideId).session(session)
-    ]);
-
-    if (!transaction) {
-      throw new Error(`Transaction ${transactionId} not found`);
-    }
-
-    if (!ride) {
-      throw new Error(`Ride ${rideId} not found`);
-    }
-
-    // Match transaction to ride
-    transaction.rideId = ride._id;
-    transaction.metadata = {
-      ...transaction.metadata,
-      rideId: ride._id.toString(),
-      manuallyMatched: true,
-      matchedAt: new Date()
+    // Build query filter
+    const filter = {
+      status: 'completed', // Only completed rides
+      paymentStatus: { $ne: 'reconciled' }, // Not reconciled
+      fare: { $exists: true, $gt: 0 } // Has a fare amount
     };
-
-    // Update ride payment status
-    ride.isPaid = true;
-    ride.paymentStatus = 'completed';
-    ride.paymentCompletedAt = transaction.processedAt || transaction.updatedAt;
-    ride.paymentTransactionId = transaction._id;
     
-    if (!ride.metadata) {
-      ride.metadata = {};
+    // Add date range if provided
+    if (startDate && endDate) {
+      filter.completedAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
     }
     
-    ride.metadata.paymentReference = transaction.gatewayTransactionId;
-    ride.metadata.paymentReconciled = true;
+    // Find unreconciled rides
+    const unreconciledRides = await Ride.find(filter)
+      .sort({ completedAt: -1 }) // Most recent first
+      .limit(100); // Limit results to avoid overwhelming response
+    
+    return unreconciledRides;
+  } catch (error) {
+    logError('Error finding unreconciled rides:', error);
+    throw error;
+  }
+};
 
+/**
+ * Get count of completed rides within a date range
+ * @param {string} startDate - ISO string start date (optional)
+ * @param {string} endDate - ISO string end date (optional)
+ * @returns {Promise<number>} Count of completed rides
+ */
+export const getCompletedRidesCount = async (startDate, endDate) => {
+  try {
+    // Build query filter
+    const filter = {
+      status: 'completed',
+    };
+    
+    // Add date range if provided
+    if (startDate && endDate) {
+      filter.completedAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+    
+    // Count completed rides
+    const count = await Ride.countDocuments(filter);
+    
+    return count;
+  } catch (error) {
+    logError('Error counting completed rides:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get count of total transactions within a date range
+ * @param {string} startDate - ISO string start date (optional)
+ * @param {string} endDate - ISO string end date (optional)
+ * @returns {Promise<number>} Count of total transactions
+ */
+export const getTotalTransactionsCount = async (startDate, endDate) => {
+  try {
+    // Build query filter
+    const filter = {
+      status: 'completed',
+    };
+    
+    // Add date range if provided
+    if (startDate && endDate) {
+      filter.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+    
+    // Count total transactions
+    const count = await Transaction.countDocuments(filter);
+    
+    return count;
+  } catch (error) {
+    logError('Error counting total transactions:', error);
+    throw error;
+  }
+};
+
+/**
+ * Match a transaction to a ride manually
+ * @param {string} transactionId - Transaction ID
+ * @param {string} rideId - Ride ID
+ * @returns {Promise<Object>} Result object
+ */
+export const matchTransactionToRide = async (transactionId, rideId) => {
+  try {
+    // Find the transaction and ride
+    const [transaction, ride] = await Promise.all([
+      Transaction.findById(transactionId),
+      Ride.findById(rideId)
+    ]);
+    
+    // Validate both exist
+    if (!transaction) {
+      return {
+        success: false,
+        message: 'Transaction not found'
+      };
+    }
+    
+    if (!ride) {
+      return {
+        success: false,
+        message: 'Ride not found'
+      };
+    }
+    
+    // Validate ride is completed
+    if (ride.status !== 'completed') {
+      return {
+        success: false,
+        message: 'Cannot reconcile a ride that has not been completed'
+      };
+    }
+    
+    // Validate transaction is completed
+    if (transaction.status !== 'completed') {
+      return {
+        success: false,
+        message: 'Cannot reconcile a transaction that has not been completed'
+      };
+    }
+    
+    // Validate amounts match (with small tolerance for currency conversion)
+    const tolerance = 0.01; // 1% tolerance
+    const amountDifference = Math.abs(transaction.amount - ride.fare) / ride.fare;
+    
+    if (amountDifference > tolerance) {
+      logInfo('Reconciliation amount mismatch', {
+        transactionAmount: transaction.amount,
+        rideFare: ride.fare,
+        difference: amountDifference
+      });
+      
+      // We still proceed, but log the discrepancy
+    }
+    
+    // Update transaction with ride ID
+    transaction.rideId = ride._id;
+    transaction.reconciled = true;
+    transaction.reconciledAt = new Date();
+    
+    // Update ride payment status
+    ride.paymentStatus = 'reconciled';
+    ride.reconciledAt = new Date();
+    ride.transactionId = transaction._id;
+    
     // Save both documents
     await Promise.all([
-      transaction.save({ session }),
-      ride.save({ session })
+      transaction.save(),
+      ride.save()
     ]);
-
-    // Commit the transaction
-    await session.commitTransaction();
-
-    logger.info(`Matched transaction ${transactionId} to ride ${rideId}`);
+    
+    // Log the successful reconciliation
+    logInfo('Transaction matched to ride successfully', {
+      transactionId,
+      rideId,
+      amount: transaction.amount,
+      fare: ride.fare
+    });
+    
     return {
       success: true,
-      message: 'Transaction matched to ride successfully',
       data: {
-        transaction: {
-          id: transaction._id,
-          reference: transaction.gatewayTransactionId,
-          amount: transaction.amount,
-          status: transaction.status
-        },
-        ride: {
-          id: ride._id,
-          status: ride.status,
-          paymentStatus: ride.paymentStatus
-        }
+        transactionId,
+        rideId,
+        matchedAt: new Date().toISOString()
       }
     };
   } catch (error) {
-    logger.error(`Error matching transaction ${transactionId} to ride ${rideId}:`, error);
-    
-    // Abort the transaction if it was started
-    if (session && session.inTransaction()) {
-      await session.abortTransaction();
-    }
-    
+    logError('Error matching transaction to ride:', error);
     return {
       success: false,
-      message: 'Failed to match transaction to ride',
-      error: error.message
-    };
-  } finally {
-    if (session) {
-      session.endSession();
-    }
-  }
-};
-
-/**
- * Find unreconciled rides that need payment verification
- * @param {Date} startDate - Start date for search
- * @param {Date} endDate - End date for search
- * @returns {Promise<Array>} - List of unreconciled rides
- */
-const findUnreconciledRides = async (startDate, endDate) => {
-  try {
-    // Find rides that are completed but not marked as paid
-    const unreconciledRides = await Ride.find({
-      status: 'completed',
-      $or: [
-        { isPaid: { $ne: true } },
-        { paymentStatus: { $ne: 'completed' } },
-        { paymentStatus: { $exists: false } }
-      ],
-      completedAt: { 
-        $gte: startDate, 
-        $lte: endDate || new Date() 
-      }
-    }).lean();
-
-    logger.info(`Found ${unreconciledRides.length} unreconciled rides`);
-    return {
-      success: true,
-      data: unreconciledRides
-    };
-  } catch (error) {
-    logger.error('Error finding unreconciled rides:', error);
-    return {
-      success: false,
-      message: 'Failed to find unreconciled rides',
-      error: error.message
+      message: 'Error matching transaction to ride: ' + error.message
     };
   }
 };
 
 /**
- * Verify and reconcile a ride payment
- * @param {String} rideId - Ride ID to reconcile
- * @returns {Promise<Object>} - Result of reconciliation
+ * Reconcile a single ride payment
+ * @param {string} rideId - Ride ID
+ * @returns {Promise<Object>} Result object
  */
-const reconcileRidePayment = async (rideId) => {
-  let session;
-
+export const reconcileRidePayment = async (rideId) => {
   try {
-    // Start a MongoDB transaction
-    session = await mongoose.startSession();
-    session.startTransaction();
-
-    // Get the ride
-    const ride = await Ride.findById(rideId).session(session);
+    // Find the ride
+    const ride = await Ride.findById(rideId);
+    
+    // Validate ride exists
     if (!ride) {
-      throw new Error(`Ride ${rideId} not found`);
-    }
-
-    // Check if ride is already reconciled
-    if (ride.isPaid && ride.paymentStatus === 'completed' && ride.paymentTransactionId) {
-      await session.commitTransaction();
       return {
-        success: true,
-        message: 'Ride already reconciled',
-        data: {
-          ride: {
-            id: ride._id,
-            status: ride.status,
-            paymentStatus: ride.paymentStatus,
-            transactionId: ride.paymentTransactionId
-          }
-        }
+        success: false,
+        message: 'Ride not found'
       };
     }
-
-    // Try to find matching transaction by metadata or ride reference
-    let transaction = await Transaction.findOne({
-      $or: [
-        { rideId: ride._id },
-        { 'metadata.rideId': ride._id.toString() }
-      ],
+    
+    // Validate ride is completed
+    if (ride.status !== 'completed') {
+      return {
+        success: false,
+        message: 'Cannot reconcile a ride that has not been completed'
+      };
+    }
+    
+    // Try to find a matching transaction
+    const possibleTransactions = await Transaction.find({
+      amount: { $gte: ride.fare * 0.99, $lte: ride.fare * 1.01 }, // 1% tolerance
       status: 'completed',
-      type: 'ride_payment'
-    }).session(session);
-
-    // If transaction found, mark ride as paid
-    if (transaction) {
-      ride.isPaid = true;
-      ride.paymentStatus = 'completed';
-      ride.paymentCompletedAt = transaction.processedAt || transaction.updatedAt;
-      ride.paymentTransactionId = transaction._id;
+      rideId: { $exists: false }, // Not already assigned to a ride
+      userId: ride.userId // Same user
+    }).sort({ createdAt: -1 }); // Most recent first
+    
+    if (possibleTransactions.length === 0) {
+      // No matching transaction found, mark for manual reconciliation
+      ride.paymentStatus = 'manual_reconciliation_required';
+      ride.reconciledAt = new Date();
       
-      if (!ride.metadata) {
-        ride.metadata = {};
-      }
+      await ride.save();
       
-      ride.metadata.paymentReference = transaction.gatewayTransactionId;
-      ride.metadata.paymentReconciled = true;
-
-      await ride.save({ session });
-      await session.commitTransaction();
-
-      logger.info(`Reconciled ride ${rideId} with existing transaction ${transaction._id}`);
       return {
         success: true,
-        message: 'Ride reconciled with existing transaction',
+        requiresManualAction: true,
+        message: 'No matching transaction found, marked for manual reconciliation',
         data: {
-          ride: {
-            id: ride._id,
-            status: ride.status,
-            paymentStatus: ride.paymentStatus
-          },
-          transaction: {
-            id: transaction._id,
-            reference: transaction.gatewayTransactionId,
-            amount: transaction.amount,
-            status: transaction.status
-          }
+          rideId,
+          reconciledAt: new Date().toISOString(),
+          status: 'manual_reconciliation_required'
         }
       };
     }
-
-    // If no transaction found, check if there's a payment reference in the ride metadata
-    let paymentReference;
-    if (ride.metadata && ride.metadata.paymentReference) {
-      paymentReference = ride.metadata.paymentReference;
-    }
-
-    // If payment reference found, verify payment
-    if (paymentReference) {
-      const verificationResult = await mongoPaymentService.verifyPayment(paymentReference);
-      
-      if (verificationResult.success) {
-        // Payment verified, get the transaction ID
-        const transactionId = verificationResult.mongoTransactionId || verificationResult.data.transactionId;
-        
-        // Get the transaction
-        transaction = await Transaction.findById(transactionId).session(session);
-        if (transaction) {
-          // Link transaction to ride if not already linked
-          if (!transaction.rideId) {
-            transaction.rideId = ride._id;
-            transaction.metadata = {
-              ...transaction.metadata,
-              rideId: ride._id.toString(),
-              reconciledAt: new Date()
-            };
-            await transaction.save({ session });
-          }
-          
-          // Update ride payment status
-          ride.isPaid = true;
-          ride.paymentStatus = 'completed';
-          ride.paymentCompletedAt = transaction.processedAt || transaction.updatedAt;
-          ride.paymentTransactionId = transaction._id;
-          
-          if (!ride.metadata) {
-            ride.metadata = {};
-          }
-          
-          ride.metadata.paymentReference = transaction.gatewayTransactionId;
-          ride.metadata.paymentReconciled = true;
-
-          await ride.save({ session });
-          await session.commitTransaction();
-
-          logger.info(`Reconciled ride ${rideId} with verified transaction ${transaction._id}`);
-          return {
-            success: true,
-            message: 'Ride reconciled with verified transaction',
-            data: {
-              ride: {
-                id: ride._id,
-                status: ride.status,
-                paymentStatus: ride.paymentStatus
-              },
-              transaction: {
-                id: transaction._id,
-                reference: transaction.gatewayTransactionId,
-                amount: transaction.amount,
-                status: transaction.status
-              }
-            }
-          };
-        }
-      }
-    }
-
-    // If still not reconciled, mark as needs manual reconciliation
-    ride.paymentStatus = 'needs_verification';
     
-    if (!ride.metadata) {
-      ride.metadata = {};
-    }
+    // Use the most recent matching transaction
+    const transaction = possibleTransactions[0];
     
-    ride.metadata.paymentNeedsManualReconciliation = true;
-    ride.metadata.lastReconciliationAttempt = new Date();
-
-    await ride.save({ session });
-    await session.commitTransaction();
-
-    logger.info(`Ride ${rideId} marked as needing manual reconciliation`);
+    // Update transaction with ride ID
+    transaction.rideId = ride._id;
+    transaction.reconciled = true;
+    transaction.reconciledAt = new Date();
+    
+    // Update ride payment status
+    ride.paymentStatus = 'reconciled';
+    ride.reconciledAt = new Date();
+    ride.transactionId = transaction._id;
+    
+    // Save both documents
+    await Promise.all([
+      transaction.save(),
+      ride.save()
+    ]);
+    
+    // Log the successful reconciliation
+    logInfo('Ride payment reconciled automatically', {
+      rideId,
+      transactionId: transaction._id,
+      amount: transaction.amount,
+      fare: ride.fare
+    });
+    
     return {
       success: true,
-      message: 'Ride marked for manual reconciliation',
+      requiresManualAction: false,
       data: {
-        ride: {
-          id: ride._id,
-          status: ride.status,
-          paymentStatus: ride.paymentStatus
-        }
-      },
-      requiresManualAction: true
+        rideId,
+        transactionId: transaction._id,
+        reconciledAt: new Date().toISOString(),
+        status: 'reconciled'
+      }
     };
   } catch (error) {
-    logger.error(`Error reconciling ride payment for ride ${rideId}:`, error);
-    
-    // Abort the transaction if it was started
-    if (session && session.inTransaction()) {
-      await session.abortTransaction();
-    }
-    
+    logError('Error reconciling ride payment:', error);
     return {
       success: false,
-      message: 'Failed to reconcile ride payment',
-      error: error.message
+      message: 'Error reconciling ride payment: ' + error.message
     };
-  } finally {
-    if (session) {
-      session.endSession();
-    }
   }
 };
 
 /**
  * Run a full reconciliation process for a date range
- * @param {Date} startDate - Start date for reconciliation
- * @param {Date} endDate - End date for reconciliation
- * @param {String} provider - Payment provider name
- * @returns {Promise<Object>} - Reconciliation summary
+ * @param {string} startDate - ISO string start date (optional)
+ * @param {string} endDate - ISO string end date (optional)
+ * @param {string} provider - Payment provider/method (optional)
+ * @returns {Promise<Object>} Result object
  */
-const runFullReconciliation = async (startDate, endDate, provider = 'paystack') => {
+export const runFullReconciliation = async (startDate, endDate, provider) => {
   try {
-    const summary = {
-      startDate,
-      endDate: endDate || new Date(),
-      unmatchedTransactions: 0,
-      unreconciledRides: 0,
+    // Start time for performance tracking
+    const startTime = Date.now();
+    
+    // Find all unreconciled rides
+    const rides = await findUnreconciledRides(startDate, endDate);
+    
+    // Track results
+    const results = {
+      totalRides: rides.length,
       automaticallyReconciled: 0,
-      requiresManualReconciliation: 0,
-      errors: 0
+      manualReconciliationRequired: 0,
+      failed: 0,
+      details: []
     };
-
-    // Step 1: Find unmatched transactions
-    const unmatchedResult = await findUnmatchedTransactions(startDate, endDate, provider);
-    if (unmatchedResult.success) {
-      summary.unmatchedTransactions = unmatchedResult.data.length;
-    } else {
-      logger.error('Error in reconciliation step 1:', unmatchedResult.error);
-      summary.errors++;
-    }
-
-    // Step 2: Find unreconciled rides
-    const unreconciledResult = await findUnreconciledRides(startDate, endDate);
-    if (unreconciledResult.success) {
-      summary.unreconciledRides = unreconciledResult.data.length;
-      
-      // Step 3: Try to reconcile each ride
-      for (const ride of unreconciledResult.data) {
-        const reconcileResult = await reconcileRidePayment(ride._id);
+    
+    // Process each ride
+    for (const ride of rides) {
+      try {
+        const result = await reconcileRidePayment(ride._id);
         
-        if (reconcileResult.success) {
-          if (reconcileResult.requiresManualAction) {
-            summary.requiresManualReconciliation++;
+        if (result.success) {
+          if (result.requiresManualAction) {
+            results.manualReconciliationRequired++;
           } else {
-            summary.automaticallyReconciled++;
+            results.automaticallyReconciled++;
           }
         } else {
-          logger.error(`Failed to reconcile ride ${ride._id}:`, reconcileResult.error);
-          summary.errors++;
+          results.failed++;
         }
+        
+        results.details.push({
+          rideId: ride._id,
+          result
+        });
+      } catch (error) {
+        results.failed++;
+        logError('Error reconciling ride in batch process:', error);
+        
+        results.details.push({
+          rideId: ride._id,
+          error: error.message
+        });
       }
-    } else {
-      logger.error('Error in reconciliation step 2:', unreconciledResult.error);
-      summary.errors++;
     }
-
-    // Step 4: Generate reconciliation report
-    const report = {
-      timestamp: new Date(),
-      summary,
-      unmatchedTransactions: unmatchedResult.success ? unmatchedResult.data : [],
-      unreconciledRides: unreconciledResult.success ? unreconciledResult.data : []
-    };
-
-    // Step 5: Send email report if configured
-    try {
-      await emailService.sendReconciliationReport(report);
-    } catch (emailError) {
-      logger.error('Failed to send reconciliation report email:', emailError);
-    }
-
-    logger.info('Reconciliation completed', summary);
+    
+    // Calculate performance metrics
+    const endTime = Date.now();
+    const processingTimeMs = endTime - startTime;
+    const processingTimeSec = processingTimeMs / 1000;
+    
+    // Log completion
+    logInfo('Full reconciliation process completed', {
+      ...results,
+      processingTimeMs,
+      processingTimeSec,
+      startDate,
+      endDate,
+      provider
+    });
+    
     return {
       success: true,
-      message: 'Reconciliation completed',
-      data: report
+      data: {
+        ...results,
+        processingTimeSec,
+        startDate,
+        endDate,
+        provider,
+        completedAt: new Date().toISOString()
+      }
     };
   } catch (error) {
-    logger.error('Error running full reconciliation:', error);
+    logError('Error running full reconciliation process:', error);
     return {
       success: false,
-      message: 'Failed to run full reconciliation',
-      error: error.message
+      message: 'Error running full reconciliation process: ' + error.message
     };
   }
-};
-
-module.exports = {
-  findUnmatchedTransactions,
-  findUnreconciledRides,
-  matchTransactionToRide,
-  reconcileRidePayment,
-  runFullReconciliation
 };

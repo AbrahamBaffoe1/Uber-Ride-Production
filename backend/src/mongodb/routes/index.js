@@ -8,6 +8,7 @@ import locationRoutes from './location.routes.js';
 import adminRoutes from './admin.routes.js';
 import userRoutes from './user.routes.js';
 import ridePricingRoutes from './ride-pricing.routes.js';
+import analyticsRoutes from './analytics.routes.js';
 // OTP routes are imported and used in shared routes
 
 /**
@@ -54,6 +55,9 @@ const setupAppRoutes = async (riderConnection, passengerConnection) => {
   
   // Register ride pricing and availability routes
   router.use('/ride-pricing', ridePricingRoutes);
+  
+  // Register analytics routes - used by admin dashboard
+  router.use('/analytics', analyticsRoutes);
   
   // OTP routes are already registered in shared routes
   // Removed duplicate registration: router.use('/otp', otpRoutes);
