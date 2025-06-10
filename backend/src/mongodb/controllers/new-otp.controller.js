@@ -13,63 +13,72 @@ import { getRiderDb, getPassengerDb } from '../../utils/mongo-client.js';
  * @route POST /api/v1/mongo/otp/request
  */
 export const requestOTP = async (req, res) => {
-  try {
-    console.log("OTP request received:", req.body);
-    const { userId, email, phoneNumber, channel } = req.body;
-    
-    // Determine contact info based on channel or provided parameters
-    let contactInfo;
-    if (channel === 'email') {
-      contactInfo = email;
-    } else if (channel === 'sms') {
-      contactInfo = phoneNumber;
-    } else {
-      contactInfo = email || phoneNumber;
-    }
-
-    if (!userId || !contactInfo) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'UserId and either email or phoneNumber are required' 
-      });
-    }
-
-    // Validate userId format
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid user ID format'
-      });
-    }
-
-    // Check if user exists - use direct MongoDB connection to avoid Mongoose timeout
-    let user;
     try {
-      // First check rider database
-      const riderDb = await getRiderDb();
-      user = await riderDb.collection('users').findOne({ _id: new ObjectId(userId) });
+      console.log("OTP request received:", req.body);
+      const { userId, email, phoneNumber, channel } = req.body;
       
-      // If not found in rider DB, check passenger database
-      if (!user) {
-        console.log(`User ${userId} not found in rider database, checking passenger database...`);
-        const passengerDb = await getPassengerDb();
-        user = await passengerDb.collection('users').findOne({ _id: new ObjectId(userId) });
-        
-        if (!user) {
-          return res.status(404).json({
-            success: false,
-            message: 'User not found in either rider or passenger database'
-          });
-        }
-        console.log(`User found in passenger database`);
+      // Determine contact info based on channel or provided parameters
+      let contactInfo;
+      if (channel === 'email') {
+        contactInfo = email;
+      } else if (channel === 'sms') {
+        contactInfo = phoneNumber;
       } else {
-        console.log(`User found in rider database`);
+        contactInfo = email || phoneNumber;
       }
-    } catch (dbError) {
-      console.error('Error accessing MongoDB directly:', dbError);
-      // Continue anyway to test email sending
-      console.log('Continuing with OTP generation despite DB error');
-    }
+
+      if (!userId || !contactInfo) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'UserId and either email or phoneNumber are required' 
+        });
+      }
+
+      // Validate userId format
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid user ID format'
+        });
+      }
+
+      // Check if user exists - use direct MongoDB connection to avoid Mongoose timeout
+      let user;
+      try {
+        // First check rider database
+        const riderDb = await getRiderDb();
+        user = await riderDb.collection('users').findOne({ _id: new ObjectId(userId) });
+        
+        // If not found in rider DB, check passenger database
+        if (!user) {
+          console.log(`User ${userId} not found in rider database, checking passenger database...`);
+          const passengerDb = await getPassengerDb();
+          user = await passengerDb.collection('users').findOne({ _id: new ObjectId(userId) });
+          
+          if (!user) {
+            // For pre-login flows like password reset, don't block the operation
+            // just because the user isn't found yet - the user may be in registration flow
+            if (req.url.includes('/public/') || req.body.type === 'passwordReset') {
+              console.log('User not found but continuing with OTP for passwordReset or public endpoint');
+              // Set a placeholder user for the OTP generation
+              user = { _id: userId };
+            } else {
+              return res.status(404).json({
+                success: false,
+                message: 'User not found in either rider or passenger database'
+              });
+            }
+          } else {
+            console.log(`User found in passenger database`);
+          }
+        } else {
+          console.log(`User found in rider database`);
+        }
+      } catch (dbError) {
+        console.error('Error accessing MongoDB directly:', dbError);
+        // Continue anyway to test email sending
+        console.log('Continuing with OTP generation despite DB error');
+      }
 
     // Request OTP generation and sending
     const result = await otpAuthService.requestOTP(userId, contactInfo);
