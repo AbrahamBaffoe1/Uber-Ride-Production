@@ -4,10 +4,7 @@ import { NavigatorScreenParams } from '@react-navigation/native';
 export type AuthStackParamList = {
   Login: undefined;
   Register: undefined;
-  PhoneVerification: {
-    phone: string;
-    userId: string;
-  };
+  // PhoneVerification removed - no longer using OTP verification for riders
   ForgotPassword: undefined;
   ResetPassword: {
     token: string;

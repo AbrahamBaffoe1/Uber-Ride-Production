@@ -168,90 +168,23 @@ const LoginScreen: React.FC = () => {
       
       await authService.login(trimmedIdentifier, trimmedPassword);
       
-      // Check if user is verified
+      // User login successful, proceed directly to main screen without verification
       const user = await authService.getCurrentUser();
       setIsLoading(false);
       
-      if (user && (!user.isEmailVerified && !user.isPhoneVerified)) {
-        // User is not verified, show verification prompt
-        Alert.alert(
-          'Account Not Verified',
-          'Your account needs to be verified before you can continue.',
-          [
-            {
-              text: 'Verify Now',
-              onPress: () => {
-                // Navigate to verification screen with user ID
-                navigation.navigate('Auth', { 
-                  screen: 'Verification',
-                  params: { userId: user._id, email: user.email, phoneNumber: user.phoneNumber }
-                });
-              },
-            },
-            {
-              text: 'Later',
-              style: 'cancel',
-            },
-          ]
-        );
-      } else {
-        // User is verified, proceed to main screen
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Main' }],
-        });
-      }
+      // Always proceed to main screen regardless of verification status
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Main' }],
+      });
     } catch (error: any) {
       setIsLoading(false);
       
-      // Check if error is about verification
-      if (error.message && error.message.includes('verified')) {
-        Alert.alert(
-          'Verification Required',
-          'Your account needs to be verified. Would you like to verify now?',
-          [
-            {
-              text: 'Verify Now',
-              onPress: async () => {
-                try {
-                  // Since we don't have userId in the error, we'll use the email to identify the user
-                  const userEmail = email;
-                  const userPhone = phone;
-                  
-                  // First, try to get the current user to get the userId
-                  let userId = '';
-                  try {
-                    const currentUser = await authService.getCurrentUser();
-                    if (currentUser) {
-                      userId = currentUser._id;
-                    }
-                  } catch (userError) {
-                    console.error('Error getting current user:', userError);
-                  }
-                  
-                  // Navigate to verification screen
-                  navigation.navigate('Auth', { 
-                    screen: 'Verification',
-                    params: { userId, email: userEmail, phoneNumber: userPhone }
-                  });
-                } catch (navError) {
-                  console.error('Navigation error:', navError);
-                }
-              },
-            },
-            {
-              text: 'Later',
-              style: 'cancel',
-            },
-          ]
-        );
-      } else {
-        // Regular login error
-        Alert.alert(
-          'Login Failed', 
-          error?.message || 'Invalid credentials or network error. Please try again.'
-        );
-      }
+      // Handle all errors as regular login errors, ignoring verification status
+      Alert.alert(
+        'Login Failed', 
+        error?.message || 'Invalid credentials or network error. Please try again.'
+      );
     }
   }, [email, phone, password, navigation, loginMethod]);
 

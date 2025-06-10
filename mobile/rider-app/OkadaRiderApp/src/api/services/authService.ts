@@ -296,6 +296,7 @@ class AuthService {
       }
       
       // Map backend user format to our app's User format and enforce 'rider' role
+      // Also automatically mark users as verified since we're not using OTP verification anymore
       const user: User = {
         _id: response.data.user.id,
         email: response.data.user.email,
@@ -305,8 +306,9 @@ class AuthService {
         // Always set role to 'rider' for this app
         role: 'rider',
         profilePicture: response.data.user.profilePicture,
-        isEmailVerified: response.data.user.isEmailVerified,
-        isPhoneVerified: response.data.user.isPhoneVerified,
+        // Auto-verify all riders since OTP verification is removed
+        isEmailVerified: true,
+        isPhoneVerified: true,
         country: response.data.user.country,
         createdAt: response.data.user.createdAt ? new Date(response.data.user.createdAt) : undefined,
         updatedAt: response.data.user.updatedAt ? new Date(response.data.user.updatedAt) : undefined
@@ -361,6 +363,92 @@ class AuthService {
       code,
       type: type as 'passwordReset' | 'verification' | 'login'
     });
+  }
+  
+  // Request verification code for email or phone - Using MongoDB backend
+  async requestVerificationCode(
+    userId: string, 
+    contactType: 'email' | 'phone', 
+    contactInfo?: string
+  ): Promise<OTPResponse> {
+    try {
+      console.log(`Requesting verification code for ${contactType}:`, contactInfo || 'from user profile');
+      
+      // Get current user if not provided
+      if (!contactInfo) {
+        const user = await this.getCurrentUser();
+        if (!user) {
+          throw new Error('User not found');
+        }
+        
+        contactInfo = contactType === 'email' ? user.email : user.phoneNumber;
+      }
+      
+      if (!contactInfo) {
+        throw new Error(`User ${contactType} is not available`);
+      }
+      
+      // Use the appropriate OTP endpoint for sending verification codes
+      if (contactType === 'email') {
+        return await otpService.requestEmailOTP({
+          userId,
+          type: 'verification',
+          email: contactInfo
+        });
+      } else {
+        return await otpService.requestSMSOTP({
+          userId,
+          type: 'verification',
+          phoneNumber: contactInfo
+        });
+      }
+    } catch (error: any) {
+      console.error(`Error requesting ${contactType} verification code:`, error);
+      throw new Error(error.response?.data?.message || 'Failed to send verification code. Please try again.');
+    }
+  }
+  
+  // Resend verification code - Using MongoDB backend
+  async resendVerificationCode(
+    userId: string, 
+    contactType: 'email' | 'phone', 
+    contactInfo?: string
+  ): Promise<OTPResponse> {
+    try {
+      console.log(`Resending verification code for ${contactType}:`, contactInfo || 'from user profile');
+      
+      // Get current user if not provided
+      if (!contactInfo) {
+        const user = await this.getCurrentUser();
+        if (!user) {
+          throw new Error('User not found');
+        }
+        
+        contactInfo = contactType === 'email' ? user.email : user.phoneNumber;
+      }
+      
+      if (!contactInfo) {
+        throw new Error(`User ${contactType} is not available`);
+      }
+      
+      // Use the OTP service to resend the verification code
+      if (contactType === 'email') {
+        return await otpService.requestEmailOTP({
+          userId,
+          type: 'verification',
+          email: contactInfo
+        });
+      } else {
+        return await otpService.requestSMSOTP({
+          userId,
+          type: 'verification',
+          phoneNumber: contactInfo
+        });
+      }
+    } catch (error: any) {
+      console.error(`Error resending ${contactType} verification code:`, error);
+      throw new Error(error.response?.data?.message || 'Failed to resend verification code. Please try again.');
+    }
   }
   
   // Reset password with token - Using MongoDB backend
@@ -516,25 +604,13 @@ class AuthService {
     }
   }
   
-  // Check if user is verified (email or phone) - Using MongoDB backend
+  // Check if user is verified (email or phone) - Always returns true since verification is removed
   async checkVerificationStatus(): Promise<{isEmailVerified: boolean, isPhoneVerified: boolean}> {
-    try {
-      const user = await this.getCurrentUser();
-      if (!user) {
-        throw new Error('User not logged in');
-      }
-      
-      return {
-        isEmailVerified: user.isEmailVerified || false,
-        isPhoneVerified: user.isPhoneVerified || false
-      };
-    } catch (error) {
-      console.error('Error checking verification status:', error);
-      return {
-        isEmailVerified: false,
-        isPhoneVerified: false
-      };
-    }
+    // Always return true for verification status since we removed OTP verification for riders
+    return {
+      isEmailVerified: true,
+      isPhoneVerified: true
+    };
   }
   
   // Upload profile picture - Using MongoDB backend
