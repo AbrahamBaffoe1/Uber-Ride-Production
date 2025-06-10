@@ -4,7 +4,22 @@
  */
 import mongoose from 'mongoose';
 import User from '../models/User.js';
+import AdminUser from '../models/AdminUser.js';
 import bcrypt from 'bcryptjs';
+import { connectToRiderDB } from '../../config/mongodb.js';
+
+// Get rider connection
+let riderConnection;
+(async () => {
+  try {
+    riderConnection = await connectToRiderDB();
+    if (!riderConnection.models.AdminUser) {
+      riderConnection.model('AdminUser', AdminUser.schema);
+    }
+  } catch (error) {
+    console.error('Failed to connect to rider database for admin user service:', error);
+  }
+})();
 
 /**
  * Toggle user verification status (email and/or phone)
@@ -148,10 +163,17 @@ export const createAdminUser = async (userData) => {
     throw new Error('Email, password, first name, last name, and phone number are required');
   }
   
-  // Check if user already exists
-  const existingUser = await User.findOne({ email });
-  if (existingUser) {
-    throw new Error('User with this email already exists');
+  if (!riderConnection || !riderConnection.models.AdminUser) {
+    throw new Error('Rider database connection or AdminUser model not ready');
+  }
+  
+  // Use the AdminUser model from the rider connection
+  const AdminUserModel = riderConnection.models.AdminUser;
+  
+  // Check if admin already exists
+  const existingAdmin = await AdminUserModel.findOne({ email });
+  if (existingAdmin) {
+    throw new Error('Admin with this email already exists');
   }
   
   // Hash the password
@@ -159,17 +181,14 @@ export const createAdminUser = async (userData) => {
   const hashedPassword = await bcrypt.hash(password, salt);
   
   // Create new admin user
-  const newAdmin = new User({
+  const newAdmin = new AdminUserModel({
     email,
     password: hashedPassword,
     firstName,
     lastName,
     phoneNumber,
     role: 'admin',
-    isEmailVerified: true,
-    isPhoneVerified: true,
-    status: 'active',
-    accountStatus: 'active'
+    status: 'active'
   });
   
   // Save admin user
