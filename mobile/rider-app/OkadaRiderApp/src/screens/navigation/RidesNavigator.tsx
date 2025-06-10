@@ -1,16 +1,17 @@
-// src/screens/navigation/HomeNavigator.tsx
+// src/screens/navigation/RidesNavigator.tsx
 import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
-import { HomeStackParamList } from './types';
+import { RidesStackParamList } from './types';
 
 // Import screens
-import DashboardScreen from '../home/DashboardScreen';
+import RidesScreen from '../rides/RidesScreen';
 import RideDetailsScreen from '../rides/RideDetailsScreen';
 import RideCompleteScreen from '../rides/RideCompleteScreen';
+import HistoryScreen from '../history/HistoryScreen';
 
-const Stack = createStackNavigator<HomeStackParamList>();
+const Stack = createStackNavigator<RidesStackParamList>();
 
-const HomeNavigator = () => {
+const RidesNavigator = () => {
   return (
     <Stack.Navigator
       screenOptions={{
@@ -18,11 +19,12 @@ const HomeNavigator = () => {
         cardStyle: { backgroundColor: '#FFFFFF' },
       }}
     >
-      <Stack.Screen name="Dashboard" component={DashboardScreen} />
+      <Stack.Screen name="RidesList" component={RidesScreen} />
       <Stack.Screen name="RideDetails" component={RideDetailsScreen} />
       <Stack.Screen name="RideComplete" component={RideCompleteScreen} />
+      <Stack.Screen name="RideHistory" component={HistoryScreen} />
     </Stack.Navigator>
   );
 };
 
-export default HomeNavigator;
+export default RidesNavigator;

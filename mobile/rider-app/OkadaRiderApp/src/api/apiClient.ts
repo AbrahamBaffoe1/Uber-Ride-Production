@@ -8,6 +8,19 @@ console.log(`Connecting to API at: ${API_BASE_URL || 'undefined'}`);
 // Check if we need to add /mongo prefix to each request
 const needsMongoPrefixing = API_BASE_URL ? !API_BASE_URL.endsWith('/mongo') : true;
 
+// Custom error class for API errors
+export class ApiError extends Error {
+  code: number;
+  response?: any;
+
+  constructor(message: string, code = 500, response?: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.response = response;
+  }
+}
+
 class ApiClient {
   private instance: AxiosInstance;
   
@@ -60,20 +73,20 @@ class ApiClient {
               refreshEndpoint = `/mongo${refreshEndpoint}`;
             }
             
-    const response = await axios.post(`${API_BASE_URL || ''}${refreshEndpoint}`, {
-      refreshToken
-    });
-    
-    // Properly extract tokens from response structure
-    // Backend returns { status: 'success', data: { token, refreshToken } }
-    const token = response.data.data.token;
-    const newRefreshToken = response.data.data.refreshToken;
-    
-    await AsyncStorage.multiSet([
-      ['authToken', token],
-      ['refreshToken', newRefreshToken]
-    ]);
+            const response = await axios.post(`${API_BASE_URL || ''}${refreshEndpoint}`, {
+              refreshToken
+            });
             
+            // Properly extract tokens from response structure
+            // Backend returns { status: 'success', data: { token, refreshToken } }
+            const token = response.data.data.token;
+            const newRefreshToken = response.data.data.refreshToken;
+            
+            await AsyncStorage.multiSet([
+              ['authToken', token],
+              ['refreshToken', newRefreshToken]
+            ]);
+                    
             originalRequest.headers.Authorization = `Bearer ${token}`;
             return this.instance(originalRequest);
           } catch (refreshError) {
@@ -113,9 +126,16 @@ class ApiClient {
         data: error.response?.data
       });
       
+      // Handle 404 errors with a specific error code for easier handling in services
+      if (error.response?.status === 404) {
+        console.log(`Resource not found: ${endpoint}`);
+        const message = error.response?.data?.message || 'Resource not found';
+        throw new ApiError(message, 404, error.response?.data);
+      }
+      
       // MongoDB-specific error handling
       if (error.response?.data?.error) {
-        throw new Error(error.response.data.error);
+        throw new ApiError(error.response.data.error, error.response?.status || 500, error.response?.data);
       }
       
       throw error;
@@ -138,9 +158,16 @@ class ApiClient {
         data: error.response?.data
       });
       
+      // Handle 404 errors with a specific error code for easier handling in services
+      if (error.response?.status === 404) {
+        console.log(`Resource not found: ${endpoint}`);
+        const message = error.response?.data?.message || 'Resource not found';
+        throw new ApiError(message, 404, error.response?.data);
+      }
+      
       // MongoDB-specific error handling
       if (error.response?.data?.error) {
-        throw new Error(error.response.data.error);
+        throw new ApiError(error.response.data.error, error.response?.status || 500, error.response?.data);
       }
       
       throw error;
@@ -160,9 +187,16 @@ class ApiClient {
         data: error.response?.data
       });
       
+      // Handle 404 errors with a specific error code for easier handling in services
+      if (error.response?.status === 404) {
+        console.log(`Resource not found: ${endpoint}`);
+        const message = error.response?.data?.message || 'Resource not found';
+        throw new ApiError(message, 404, error.response?.data);
+      }
+      
       // MongoDB-specific error handling
       if (error.response?.data?.error) {
-        throw new Error(error.response.data.error);
+        throw new ApiError(error.response.data.error, error.response?.status || 500, error.response?.data);
       }
       
       throw error;
@@ -182,9 +216,16 @@ class ApiClient {
         data: error.response?.data
       });
       
+      // Handle 404 errors with a specific error code for easier handling in services
+      if (error.response?.status === 404) {
+        console.log(`Resource not found: ${endpoint}`);
+        const message = error.response?.data?.message || 'Resource not found';
+        throw new ApiError(message, 404, error.response?.data);
+      }
+      
       // MongoDB-specific error handling
       if (error.response?.data?.error) {
-        throw new Error(error.response.data.error);
+        throw new ApiError(error.response.data.error, error.response?.status || 500, error.response?.data);
       }
       
       throw error;
@@ -204,9 +245,16 @@ class ApiClient {
         data: error.response?.data
       });
       
+      // Handle 404 errors with a specific error code for easier handling in services
+      if (error.response?.status === 404) {
+        console.log(`Resource not found: ${endpoint}`);
+        const message = error.response?.data?.message || 'Resource not found';
+        throw new ApiError(message, 404, error.response?.data);
+      }
+      
       // MongoDB-specific error handling
       if (error.response?.data?.error) {
-        throw new Error(error.response.data.error);
+        throw new ApiError(error.response.data.error, error.response?.status || 500, error.response?.data);
       }
       
       throw error;
@@ -214,4 +262,5 @@ class ApiClient {
   }
 }
 
+// Create and export a singleton instance
 export const apiClient = new ApiClient();

@@ -14,12 +14,12 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { HomeStackParamList } from '../navigation/types';
+import { RidesStackParamList } from '../navigation/types';
 import { rideService, RideDetails as RideRequest, ActiveRide } from '../../api/services/ride.service';
 import * as authService from '../../services/auth.service';
 import { socketService } from '../../services/socketService';
 
-type RidesScreenNavigationProp = StackNavigationProp<HomeStackParamList, 'Rides'>;
+type RidesScreenNavigationProp = StackNavigationProp<RidesStackParamList, 'RidesList'>;
 
 const RidesScreen = () => {
   const navigation = useNavigation<RidesScreenNavigationProp>();
@@ -57,8 +57,8 @@ const RidesScreen = () => {
   // Set up real-time listeners when the screen is focused
   useFocusEffect(
     useCallback(() => {
-      // Connect to socket if not already connected
-      socketService.connect().catch(console.error);
+      // Initialize socket if not already connected
+      socketService.initialize().catch(console.error);
       
       // Subscribe to ride status changes
       const rideStatusUnsubscribe = rideService.onRideStatusChanged((updatedActiveRide) => {

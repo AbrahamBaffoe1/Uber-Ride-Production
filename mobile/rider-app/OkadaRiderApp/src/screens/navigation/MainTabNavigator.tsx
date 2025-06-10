@@ -3,14 +3,13 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Image, StyleSheet } from 'react-native';
 import { MainTabParamList } from './types';
+import Icon from 'react-native-vector-icons/Ionicons';
 
 // Import navigators
 import HomeNavigator from './HomeNavigator';
-
-// Import screens
-import RidesScreen from '../rides/RidesScreen';
-import EarningsOverviewScreen from '../earnings/EarningsOverviewScreen';
-import ProfileOverviewScreen from '../profile/ProfileOverviewScreen';
+import RidesNavigator from './RidesNavigator';
+import EarningsNavigator from './EarningsNavigator';
+import ProfileNavigator from './ProfileNavigator';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -26,53 +25,41 @@ const MainTabNavigator = () => {
       }}
     >
       <Tab.Screen
-        name="Home"
+        name="HomeTab"
         component={HomeNavigator}
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Image
-              source={require('../../../assets/images/home-icon.png')}
-              style={[styles.tabIcon, { tintColor: color }]}
-            />
+            <Icon name="home-outline" size={24} color={color} />
           ),
           tabBarLabel: 'Home',
         }}
       />
       <Tab.Screen
-        name="Rides"
-        component={RidesScreen}
+        name="RidesTab"
+        component={RidesNavigator}
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Image
-              source={require('../../../assets/images/ride-icon.png')}
-              style={[styles.tabIcon, { tintColor: color }]}
-            />
+            <Icon name="car-outline" size={24} color={color} />
           ),
           tabBarLabel: 'Rides',
         }}
       />
       <Tab.Screen
-        name="Earnings"
-        component={EarningsOverviewScreen}
+        name="EarningsTab"
+        component={EarningsNavigator}
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Image
-              source={require('../../../assets/images/earnings-icon.png')}
-              style={[styles.tabIcon, { tintColor: color }]}
-            />
+            <Icon name="cash-outline" size={24} color={color} />
           ),
           tabBarLabel: 'Earnings',
         }}
       />
       <Tab.Screen
-        name="Profile"
-        component={ProfileOverviewScreen}
+        name="ProfileTab"
+        component={ProfileNavigator}
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Image
-              source={require('../../../assets/images/profile-icon.png')}
-              style={[styles.tabIcon, { tintColor: color }]}
-            />
+            <Icon name="person-outline" size={24} color={color} />
           ),
           tabBarLabel: 'Profile',
         }}

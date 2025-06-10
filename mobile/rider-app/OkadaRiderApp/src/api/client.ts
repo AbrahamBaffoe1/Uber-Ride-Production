@@ -97,6 +97,14 @@ class ApiClient {
         this.clearToken();
         // You might want to add logic to refresh token or redirect to login
       }
+      
+      // For 404 errors, create a specific ApiError with a "not found" message
+      // This makes it easier for services to handle non-existent resources
+      if (status === 404) {
+        console.log(`Resource not found: ${error.config?.url}`);
+        const message = responseData?.message || 'Resource not found';
+        throw new ApiError(message, 404, responseData);
+      }
 
       throw new ApiError(
         responseData.message || 'An error occurred',

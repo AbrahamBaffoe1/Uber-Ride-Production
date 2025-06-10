@@ -15,10 +15,10 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { HomeStackParamList } from '../navigation/types';
+import { EarningsStackParamList } from '../navigation/types';
 import { API_BASE_URL } from '../../api/config';
 
-type EarningsScreenNavigationProp = StackNavigationProp<HomeStackParamList, 'Earnings'>;
+type EarningsScreenNavigationProp = StackNavigationProp<EarningsStackParamList, 'EarningsOverview'>;
 
 interface EarningsSummary {
   todayEarnings: number;
@@ -359,6 +359,13 @@ const EarningsScreen = () => {
           onPress={() => navigation.navigate('EarningsHistory')}
         >
           <Text style={styles.viewHistoryButtonText}>View Full History</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[styles.viewHistoryButton, {marginTop: 8, backgroundColor: '#F0F7FF'}]}
+          onPress={() => navigation.navigate('RiderMetrics', {})}
+        >
+          <Text style={styles.viewHistoryButtonText}>View Detailed Metrics</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

@@ -5,6 +5,170 @@
 import { apiClient } from '../client';
 import { socketService } from './socket.service';
 
+// Types
+export interface Location {
+  latitude: number;
+  longitude: number;
+  address?: string;
+}
+
+export interface Passenger {
+  id: string;
+  name: string;
+  phone?: string;
+  rating?: number;
+  photo?: string;
+}
+
+export interface RideDetails {
+  id: string;
+  passenger: Passenger;
+  pickupLocation: Location;
+  dropoffLocation: Location;
+  distance: number | string;
+  estimatedDuration?: string;
+  fare: number;
+  requestedAt: string;
+  status: 'requested' | 'accepted' | 'arrived' | 'started' | 'completed' | 'cancelled';
+}
+
+export interface ActiveRide {
+  id: string;
+  passengerName: string;
+  pickupLocation: string;
+  dropoffLocation: string;
+  distance: string;
+  estimatedDuration?: string;
+  status: 'accepted' | 'arrived' | 'started';
+}
+
+// Event listeners
+let rideStatusChangeListeners: Array<(ride: ActiveRide | null) => void> = [];
+let rideRequestsChangeListeners: Array<(requests: RideDetails[]) => void> = [];
+
+/**
+ * Get rides for current rider (active ride and available requests)
+ * @returns Promise with active ride and ride requests
+ */
+export const getRiderRides = async (): Promise<{
+  activeRide: ActiveRide | null;
+  rideRequests: RideDetails[];
+}> => {
+  try {
+    // Try to fetch from multiple endpoints with fallbacks
+    const [activeRideResponse, requestsResponse] = await Promise.allSettled([
+      apiClient.get('/rider/rides/active').catch(() => ({ data: null })),
+      apiClient.get('/rides/nearby').catch(() => ({ data: [] }))
+    ]);
+
+    const activeRide = activeRideResponse.status === 'fulfilled' ? activeRideResponse.value.data : null;
+    const rideRequests = requestsResponse.status === 'fulfilled' ? requestsResponse.value.data : [];
+
+    return {
+      activeRide,
+      rideRequests: Array.isArray(rideRequests) ? rideRequests : []
+    };
+  } catch (error) {
+    console.error('Error fetching rider rides:', error);
+    return {
+      activeRide: null,
+      rideRequests: []
+    };
+  }
+};
+
+/**
+ * Update rider availability status
+ * @param isAvailable Whether the rider is available
+ * @returns Promise with result
+ */
+export const updateAvailability = async (isAvailable: boolean): Promise<void> => {
+  try {
+    // Update via socket
+    socketService.setAvailability(isAvailable);
+    
+    // Also update via API
+    await apiClient.put('/location/status', {
+      status: isAvailable ? 'online' : 'offline',
+      timestamp: new Date().toISOString()
+    }).catch(error => {
+      // If the endpoint doesn't exist, just log it but don't throw
+      if (error.code === 404) {
+        console.log('Location status endpoint not found, using socket only');
+      } else {
+        throw error;
+      }
+    });
+  } catch (error) {
+    console.error('Error updating availability:', error);
+    throw error;
+  }
+};
+
+/**
+ * Subscribe to ride status changes
+ * @param callback Callback function
+ * @returns Unsubscribe function
+ */
+export const onRideStatusChanged = (callback: (ride: ActiveRide | null) => void): (() => void) => {
+  rideStatusChangeListeners.push(callback);
+  
+  // Set up socket listeners
+  const handleStatusUpdate = (data: any) => {
+    if (data && data.ride) {
+      const activeRide: ActiveRide = {
+        id: data.ride.id,
+        passengerName: data.ride.passengerName || 'Unknown',
+        pickupLocation: data.ride.pickupLocation || 'Unknown',
+        dropoffLocation: data.ride.dropoffLocation || 'Unknown',
+        distance: data.ride.distance || 'Unknown',
+        estimatedDuration: data.ride.estimatedDuration,
+        status: data.ride.status
+      };
+      callback(activeRide);
+    }
+  };
+  
+  socketService.on('ride:status_update_confirmed', handleStatusUpdate);
+  socketService.on('ride:acceptance_confirmed', handleStatusUpdate);
+  
+  // Return unsubscribe function
+  return () => {
+    rideStatusChangeListeners = rideStatusChangeListeners.filter(l => l !== callback);
+    socketService.off('ride:status_update_confirmed', handleStatusUpdate);
+    socketService.off('ride:acceptance_confirmed', handleStatusUpdate);
+  };
+};
+
+/**
+ * Subscribe to ride requests changes
+ * @param callback Callback function
+ * @returns Unsubscribe function
+ */
+export const onRideRequestsChanged = (callback: (requests: RideDetails[]) => void): (() => void) => {
+  rideRequestsChangeListeners.push(callback);
+  
+  // Set up socket listeners
+  const handleNewRequest = (data: any) => {
+    if (data) {
+      // Fetch updated list of requests
+      getRiderRides().then(({ rideRequests }) => {
+        callback(rideRequests);
+      });
+    }
+  };
+  
+  socketService.on('ride:new_request', handleNewRequest);
+  socketService.on('ride:request', handleNewRequest);
+  
+  // Return unsubscribe function
+  return () => {
+    rideRequestsChangeListeners = rideRequestsChangeListeners.filter(l => l !== callback);
+    socketService.off('ride:new_request', handleNewRequest);
+    socketService.off('ride:request', handleNewRequest);
+  };
+};
+
 /**
  * Get active ride for current rider
  * @returns Promise with active ride data
@@ -196,7 +360,12 @@ export const listenForRideRequests = (callback: (rideRequest: any) => void) => {
   };
 };
 
-export default {
+// Create the service object
+export const rideService = {
+  getRiderRides,
+  updateAvailability,
+  onRideStatusChanged,
+  onRideRequestsChanged,
   getActiveRide,
   acceptRide,
   rejectRide,
@@ -207,3 +376,5 @@ export default {
   getRideHistory,
   listenForRideRequests
 };
+
+export default rideService;

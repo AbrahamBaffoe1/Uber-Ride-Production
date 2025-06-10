@@ -48,37 +48,57 @@ export type HomeStackParamList = {
   RideComplete: {
     rideId: string;
   };
-  Earnings: undefined;
-  EarningsHistory: undefined;
-  CashoutConfirmation: {
-    amount: number;
-  };
-  Profile: undefined;
-  History: undefined;
-  Support: undefined;
-  Safety: {
-    rideId: string;
-  };
-  Settings: undefined;
-  Compliance: undefined;
-  Notifications: undefined;
-  Rides: undefined;
 };
 
 // Main Tab Navigator - Combines bottom tabs
 export type MainTabParamList = {
-  Home: NavigatorScreenParams<HomeStackParamList>;
-  Rides: undefined;
-  Earnings: undefined;
-  Profile: undefined;
-  History: undefined;
-  Support: undefined;
-  Safety: {
+  HomeTab: NavigatorScreenParams<HomeStackParamList>;
+  RidesTab: NavigatorScreenParams<RidesStackParamList>;
+  EarningsTab: NavigatorScreenParams<EarningsStackParamList>;
+  ProfileTab: NavigatorScreenParams<ProfileStackParamList>;
+};
+
+// Rides Stack - Ride-related screens
+export type RidesStackParamList = {
+  RidesList: undefined;
+  RideDetails: {
+    rideId: string;
+    passengerName?: string;
+    pickupLocation?: string;
+    dropoffLocation?: string;
+    distance?: string;
+    estimatedFare?: string;
+    timestamp?: Date;
+    status?: 'accepted' | 'arrived' | 'started';
+  };
+  RideComplete: {
     rideId: string;
   };
+  RideHistory: undefined;
+};
+
+// Earnings Stack - Earnings-related screens
+export type EarningsStackParamList = {
+  EarningsOverview: undefined;
+  EarningsHistory: undefined;
+  CashoutConfirmation: {
+    amount: number;
+  };
+  RiderMetrics: {
+    date?: string;
+  };
+};
+
+// Profile Stack - Profile-related screens
+export type ProfileStackParamList = {
+  ProfileOverview: undefined;
   Settings: undefined;
-  Compliance: undefined;
   Notifications: undefined;
+  Support: undefined;
+  Safety: {
+    rideId?: string;
+  };
+  Compliance: undefined;
 };
 
 // Root Navigator - Top level navigation

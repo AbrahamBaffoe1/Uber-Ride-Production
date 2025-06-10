@@ -495,39 +495,6 @@ const Dashboard = () => {
         </>
         )}
       </ScrollView>
-
-      {/* Quick Links Footer */}
-      <BlurView intensity={80} style={styles.quickLinksContainer}>
-        <View style={styles.quickLinks}>
-          <TouchableOpacity style={styles.quickLinkItem}>
-            <View style={styles.quickLinkIcon}>
-              <Text style={styles.quickLinkIconText}>₦</Text>
-            </View>
-            <Text style={styles.quickLinkText}>Earnings</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.quickLinkItem}>
-            <View style={styles.quickLinkIcon}>
-              <Text style={styles.quickLinkIconText}>🕒</Text>
-            </View>
-            <Text style={styles.quickLinkText}>History</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.quickLinkItem}>
-            <View style={styles.quickLinkIcon}>
-              <Text style={styles.quickLinkIconText}>👤</Text>
-            </View>
-            <Text style={styles.quickLinkText}>Profile</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.quickLinkItem}>
-            <View style={styles.quickLinkIcon}>
-              <Text style={styles.quickLinkIconText}>❓</Text>
-            </View>
-            <Text style={styles.quickLinkText}>Support</Text>
-          </TouchableOpacity>
-        </View>
-      </BlurView>
     </SafeAreaView>
   );
 };
@@ -550,7 +517,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   scrollContent: {
-    paddingBottom: 80,
+    paddingBottom: 20,
   },
   header: {
     flexDirection: 'row',
