@@ -11,19 +11,21 @@ const apiClient = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true,
-  timeout: 10000, // 10 second timeout
+  timeout: 300000, // 5 minute timeout to account for potential MongoDB delays
 });
 
 // Configure retry behavior
 axiosRetry(apiClient, {
-  retries: 3, // Number of retry attempts
+  retries: 5, // Increased number of retry attempts
   retryDelay: (retryCount) => {
-    return retryCount * 1000; // Exponential backoff
+    return retryCount * 2000; // More aggressive exponential backoff
   },
   retryCondition: (error) => {
-    // Only retry on network errors or 5xx server errors, not on 4xx client errors
+    // Retry on network errors, timeouts, 5xx errors, and MongoDB buffering errors
     return axiosRetry.isNetworkOrIdempotentRequestError(error) || 
-           (error.response && error.response.status >= 500 && error.response.status < 600);
+           error.code === 'ECONNABORTED' || // Timeout errors
+           (error.response && error.response.status >= 500 && error.response.status < 600) ||
+           (error.message && error.message.includes('buffering timed out'));
   },
 });
 

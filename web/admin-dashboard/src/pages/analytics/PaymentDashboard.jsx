@@ -97,18 +97,10 @@ const PaymentDashboardComponent = () => {
             setRevenueSourceData(revenueData);
           }
           
-          // Extract hourly data if available or create placeholder
-          // For now, using mock data since we don't have hourly distribution in API yet
-          setHourlyDistribution([
-            { hour: '00:00', transactions: 25 },
-            { hour: '03:00', transactions: 12 },
-            { hour: '06:00', transactions: 38 },
-            { hour: '09:00', transactions: 156 },
-            { hour: '12:00', transactions: 230 },
-            { hour: '15:00', transactions: 310 },
-            { hour: '18:00', transactions: 285 },
-            { hour: '21:00', transactions: 119 },
-          ]);
+          // Set hourly distribution if available
+          if (data.hourlyDistribution) {
+            setHourlyDistribution(data.hourlyDistribution);
+          }
         }
       } catch (err) {
         console.error('Error fetching payment analytics:', err);
@@ -309,26 +301,31 @@ const PaymentDashboardComponent = () => {
           </div>
         </div>
 
-        {/* Hourly Transaction Distribution */}
+        {/* Transaction Status Distribution */}
         <div className="paper">
           <div className="paper-header">
-            <h3 className="paper-title">Hourly Transaction Distribution</h3>
+            <h3 className="paper-title">Transaction Status Distribution</h3>
           </div>
           <div className="paper-content">
             <div style={{ width: '100%', height: 300 }}>
               <ResponsiveContainer>
-                <ComposedChart
-                  data={hourlyDistribution}
-                  margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
-                >
-                  <CartesianGrid stroke="#f5f5f5" />
-                  <XAxis dataKey="hour" scale="band" />
-                  <YAxis />
-                  <Tooltip />
+                <PieChart>
+                  <Pie
+                    data={transactionsByStatus}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                    label={({ name, value }) => `${name}: ${value}`}
+                  >
+                    {transactionsByStatus.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => new Intl.NumberFormat().format(value)} />
                   <Legend />
-                  <Bar dataKey="transactions" barSize={20} fill="#3a7bd5" />
-                  <Line type="monotone" dataKey="transactions" stroke="#ff7300" dot={false} />
-                </ComposedChart>
+                </PieChart>
               </ResponsiveContainer>
             </div>
           </div>
@@ -500,18 +497,24 @@ const PaymentDashboardComponent = () => {
 
               <div>
                 <h3 className="text-lg font-semibold mb-4">Revenue Source Analysis</h3>
-                <div className="mb-4">
-                  <h4 className="font-medium">Rides (67%)</h4>
-                  <p className="text-gray-600">Standard transportation services account for the majority of our revenue, with stable growth month-over-month.</p>
-                </div>
-                <div className="mb-4">
-                  <h4 className="font-medium">Delivery (23%)</h4>
-                  <p className="text-gray-600">Package and food delivery services are growing quickly, with a 15% increase since last quarter.</p>
-                </div>
-                <div className="mb-4">
-                  <h4 className="font-medium">Premium Services (10%)</h4>
-                  <p className="text-gray-600">Higher-tier services including scheduled rides and VIP transportation, showing strong profit margins.</p>
-                </div>
+                {revenueSourceData.map((source, index) => (
+                  <div className="mb-4" key={`source-${index}`}>
+                    <h4 className="font-medium">
+                      {source.name} ({source.value.toFixed(1)}%)
+                    </h4>
+                    <p className="text-gray-600">
+                      {source.name === 'Rides' && 'Standard transportation services account for a significant portion of revenue.'}
+                      {source.name === 'Delivery' && 'Package and food delivery services revenue stream.'}
+                      {source.name === 'Premium' && 'Higher-tier services including scheduled rides and VIP transportation.'}
+                      {!['Rides', 'Delivery', 'Premium'].includes(source.name) && `${source.name} services.`}
+                    </p>
+                  </div>
+                ))}
+                {revenueSourceData.length === 0 && (
+                  <div className="mb-4">
+                    <p className="text-gray-600">No revenue source data available.</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -557,17 +560,21 @@ const PaymentDashboardComponent = () => {
                 <div className="mb-4">
                   {gatewayPerformance.length > 0 ? (
                     <>
-                      <p className="mb-2 text-gray-600">
-                        <strong>{gatewayPerformance.reduce((best, current) => 
-                          current.successRate > best.successRate ? current : best, gatewayPerformance[0]).name}
-                        </strong> has the highest success rate at {gatewayPerformance.reduce((best, current) => 
-                          current.successRate > best.successRate ? current : best, gatewayPerformance[0]).successRate.toFixed(1)}%.
+                      <p className="mb-3 text-gray-600">
+                        <strong>Success Rate Summary:</strong> Across all payment gateways, the average success rate is {
+                          (gatewayPerformance.reduce((sum, gateway) => sum + gateway.successRate, 0) / gatewayPerformance.length).toFixed(1)
+                        }%.
                       </p>
-                      <p className="mb-2 text-gray-600">
-                        <strong>{gatewayPerformance.reduce((fastest, current) => 
-                          current.avgProcessingTime < fastest.avgProcessingTime ? current : fastest, gatewayPerformance[0]).name}
-                        </strong> is the fastest gateway with {gatewayPerformance.reduce((fastest, current) => 
-                          current.avgProcessingTime < fastest.avgProcessingTime ? current : fastest, gatewayPerformance[0]).avgProcessingTime.toFixed(1)}s average processing time.
+                      <p className="mb-3 text-gray-600">
+                        <strong>Processing Time:</strong> Average transaction processing time is {
+                          (gatewayPerformance.reduce((sum, gateway) => sum + gateway.avgProcessingTime, 0) / gatewayPerformance.length).toFixed(2)
+                        } seconds.
+                      </p>
+                      <p className="mb-3 text-gray-600">
+                        <strong>Recommendation:</strong> Focus on {
+                          gatewayPerformance.reduce((worst, current) => 
+                            current.successRate < worst.successRate ? current : worst, gatewayPerformance[0]).name
+                        } which has the lowest performance.
                       </p>
                     </>
                   ) : (

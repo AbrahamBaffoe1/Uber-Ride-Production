@@ -493,9 +493,18 @@ const OtpDashboard = () => {
                 <div className="mb-4">
                   <h4 className="font-medium">Key Insights</h4>
                   <ul className="list-disc pl-5 text-gray-600">
-                    <li>SMS verification has a 7.2% higher success rate than email</li>
-                    <li>Most failures occur during high-traffic periods (6-8 PM)</li>
-                    <li>New users have a 5% lower verification success rate than returning users</li>
+                    {deliveryMethodsData.sms && deliveryMethodsData.email && (
+                      <li>
+                        {deliveryMethodsData.sms.successRate > deliveryMethodsData.email.successRate 
+                          ? `SMS verification has a ${(deliveryMethodsData.sms.successRate - deliveryMethodsData.email.successRate).toFixed(1)}% higher success rate than email`
+                          : `Email verification has a ${(deliveryMethodsData.email.successRate - deliveryMethodsData.sms.successRate).toFixed(1)}% higher success rate than SMS`
+                        }
+                      </li>
+                    )}
+                    {/* Dynamic insights based on actual data */}
+                    {summaryData && summaryData.successRate > 0 && (
+                      <li>Success rate is currently at {summaryData.successRate.toFixed(1)}%</li>
+                    )}
                   </ul>
                 </div>
               </div>
@@ -531,27 +540,27 @@ const OtpDashboard = () => {
 
               <div>
                 <h3 className="text-lg font-semibold mb-4">User Segment Analysis</h3>
-                <div className="mb-4">
-                  <h4 className="font-medium">
-                    New Users 
-                    ({userSegmentChartData.length > 0 ? `${((userSegmentChartData[0].value / userSegmentChartData.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(1)}%` : '-'})
-                  </h4>
-                  <p className="text-gray-600">Users who registered within the last 30 days and are verifying their accounts or making first transactions.</p>
-                </div>
-                <div className="mb-4">
-                  <h4 className="font-medium">
-                    Returning Users 
-                    ({userSegmentChartData.length > 1 ? `${((userSegmentChartData[1].value / userSegmentChartData.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(1)}%` : '-'})
-                  </h4>
-                  <p className="text-gray-600">Regular users who verify for login, payment, or other service actions.</p>
-                </div>
-                <div className="mb-4">
-                  <h4 className="font-medium">
-                    Dormant Users 
-                    ({userSegmentChartData.length > 2 ? `${((userSegmentChartData[2].value / userSegmentChartData.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(1)}%` : '-'})
-                  </h4>
-                  <p className="text-gray-600">Users returning after 60+ days of inactivity, typically requiring additional verification.</p>
-                </div>
+                {userSegmentChartData.map((segment, index) => (
+                  <div className="mb-4" key={`segment-${index}`}>
+                    <h4 className="font-medium">
+                      {segment.name} 
+                      ({userSegmentChartData.length > 0 ? 
+                        `${((segment.value / userSegmentChartData.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(1)}%` : 
+                        '-'})
+                    </h4>
+                    <p className="text-gray-600">
+                      {segment.name === 'New Users' && 'Users who registered within the last 30 days and are verifying their accounts or making first transactions.'}
+                      {segment.name === 'Returning Users' && 'Regular users who verify for login, payment, or other service actions.'}
+                      {segment.name === 'Dormant Users' && 'Users returning after 60+ days of inactivity, typically requiring additional verification.'}
+                      {!['New Users', 'Returning Users', 'Dormant Users'].includes(segment.name) && `${segment.name} segment data.`}
+                    </p>
+                  </div>
+                ))}
+                {userSegmentChartData.length === 0 && (
+                  <div className="mb-4">
+                    <p className="text-gray-600">No user segment data available.</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -581,23 +590,25 @@ const OtpDashboard = () => {
                   <h4 className="font-medium">Verification Speed</h4>
                   <p className="text-gray-600">
                     The average verification time is {summaryData?.avgVerificationTime || '-'} seconds.
-                    Most verifications are completed within 30 seconds.
                   </p>
                 </div>
-                <div className="mb-4">
-                  <h4 className="font-medium">Performance Trends</h4>
-                  <p className="text-gray-600">
-                    {deliveryMethodsData.sms && deliveryMethodsData.email ? 
-                      `SMS verifications are ${Math.abs(deliveryMethodsData.sms.avgVerificationTime - deliveryMethodsData.email.avgVerificationTime).toFixed(1)} seconds faster than email on average.` : 
-                      'Verification performance trends are being analyzed.'}
-                  </p>
-                </div>
-                <div className="mb-4">
-                  <h4 className="font-medium">Improvement Opportunities</h4>
-                  <p className="text-gray-600">
-                    Optimizing verification times for slower channels can improve overall user experience.
-                  </p>
-                </div>
+                {deliveryMethodsData.sms && deliveryMethodsData.email && (
+                  <div className="mb-4">
+                    <h4 className="font-medium">Channel Comparison</h4>
+                    <p className="text-gray-600">
+                      {`SMS: ${deliveryMethodsData.sms.avgVerificationTime.toFixed(1)}s vs Email: ${deliveryMethodsData.email.avgVerificationTime.toFixed(1)}s`}
+                    </p>
+                  </div>
+                )}
+                {verificationTimeData && verificationTimeData.length > 0 && (
+                  <div className="mb-4">
+                    <h4 className="font-medium">Distribution</h4>
+                    <p className="text-gray-600">
+                      {verificationTimeData.reduce((max, current) => 
+                        current.count > max.count ? current : max, verificationTimeData[0]).time} is the most common verification time range.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}

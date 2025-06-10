@@ -53,6 +53,7 @@ const apiClient = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true,
+  timeout: 300000, // 5 minute timeout to account for potential MongoDB delays
 });
 
 // Apply the same authentication interceptor as in authService
@@ -463,10 +464,14 @@ const PaymentReconciliationDashboard = () => {
                 </Button>
               </Box>
               
-              <Typography variant="body2" color="textSecondary" gutterBottom>
-                Running the reconciliation process will attempt to match all unreconciled transactions 
-                and mark all unreconciled rides. The process runs in the background and may take several minutes.
-              </Typography>
+                  <Typography variant="body2" color="textSecondary" gutterBottom>
+                    Running the reconciliation process will attempt to match all unreconciled transactions 
+                    and mark all unreconciled rides. The process runs in the background and may take several minutes 
+                    to complete.
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+                    After completion, refresh this dashboard to see updated statistics.
+                  </Typography>
               
               {isRunningReconciliation && (
                 <LinearProgress sx={{ mt: 2 }} />
@@ -603,8 +608,9 @@ const PaymentReconciliationDashboard = () => {
                       <TableCell>{ride._id.substring(0, 8)}...</TableCell>
                       <TableCell>
                         <Chip 
-                          label={ride.status} 
-                          color={ride.status === 'completed' ? 'success' : 'primary'} 
+                          label={ride.paymentStatus || ride.status} 
+                          color={ride.paymentStatus === 'reconciled' ? 'success' : 
+                                 ride.paymentStatus === 'manual_reconciliation_required' ? 'warning' : 'primary'} 
                           size="small" 
                         />
                       </TableCell>
