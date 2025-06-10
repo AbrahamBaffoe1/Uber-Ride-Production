@@ -2,12 +2,12 @@
  * Earnings Routes for MongoDB
  * Handles API endpoints for rider earnings
  */
-const express = require('express');
-const { authenticate } = require('../middlewares/auth.middleware');
-const mongoose = require('mongoose');
+import express from 'express';
+import { authenticate } from '../middlewares/auth.middleware.js';
+import mongoose from 'mongoose';
 const { ObjectId } = mongoose.Types;
-const User = require('../models/User');
-const loggingService = require('../../services/logging.service');
+import User from '../models/User.js';
+import loggingService from '../../services/logging.service.js';
 
 // Create a simple logger that uses the logging service
 const logger = {
@@ -426,4 +426,4 @@ router.get('/daily', authenticate, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

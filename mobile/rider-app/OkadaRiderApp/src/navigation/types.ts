@@ -45,6 +45,9 @@ export type HomeStackParamList = {
   CashoutConfirmation: {
     amount: number;
   };
+  RiderMetrics: {
+    date?: string;
+  };
   Profile: undefined;
   History: undefined;
   Support: undefined;

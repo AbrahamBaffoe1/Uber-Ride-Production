@@ -2,12 +2,12 @@
 import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 import { EarningsStackParamList } from './types';
-
-// Import screens
 import EarningsScreen from '../earnings/EarningsScreen';
-import EarningsHistoryScreen from '../earnings/EarningsHistoryScreen';
-import CashoutConfirmationScreen from '../earnings/CashoutConfirmationScreen';
 import RiderMetricsScreen from '../metrics/RiderMetricsScreen';
+
+// Import these placeholder components later when they're implemented
+const EarningsHistoryScreen = () => null;
+const CashoutConfirmationScreen = (props: any) => null;
 
 const Stack = createStackNavigator<EarningsStackParamList>();
 

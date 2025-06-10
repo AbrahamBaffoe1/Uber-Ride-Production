@@ -2,11 +2,11 @@
 import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 import { HomeStackParamList } from './types';
-
-// Import screens
 import DashboardScreen from '../home/DashboardScreen';
-import RideDetailsScreen from '../rides/RideDetailsScreen';
-import RideCompleteScreen from '../rides/RideCompleteScreen';
+
+// Import these placeholder components later when they're implemented
+const RideDetailsScreen = (props: any) => null;
+const RideCompleteScreen = (props: any) => null;
 
 const Stack = createStackNavigator<HomeStackParamList>();
 

@@ -1,438 +1,496 @@
-// src/screens/safety/SafetyScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  Image,
+  TouchableOpacity,
   ScrollView,
   Alert,
   ActivityIndicator,
+  Platform,
+  Linking
 } from 'react-native';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { HomeStackParamList } from '../../navigation/types';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import * as Location from 'expo-location';
+import safetyService, { EmergencyContact } from '../../api/services/safety.service';
+import { colors } from '../../styles/theme';
 
-type SafetyScreenNavigationProp = StackNavigationProp<HomeStackParamList, 'Safety'>;
-type SafetyScreenRouteProp = RouteProp<HomeStackParamList, 'Safety'>;
+const SafetyScreen: React.FC = () => {
+  const navigation = useNavigation();
+  const [loading, setLoading] = useState(false);
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
+  const [activeSOSId, setActiveSOSId] = useState<string | null>(null);
+  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
-interface EmergencyContact {
-  id: string;
-  name: string;
-  phone: string;
-  relationship: string;
-}
+  // Fetch emergency contacts and active SOS alerts on mount
+  useEffect(() => {
+    fetchEmergencyContacts();
+    fetchActiveSOS();
+    getLocation();
+  }, []);
 
-const SafetyScreen = () => {
-  const navigation = useNavigation<SafetyScreenNavigationProp>();
-  const route = useRoute<SafetyScreenRouteProp>();
-  const { rideId } = route.params;
-  
-  const [isEmergencyLoading, setIsEmergencyLoading] = useState(false);
-  const [isPoliceLoading, setIsPoliceLoading] = useState(false);
-  const [isMedicalLoading, setIsMedicalLoading] = useState(false);
-  const [isRoadAssistanceLoading, setIsRoadAssistanceLoading] = useState(false);
-  
-  // Mocked emergency contacts - in a real app, these would come from the API
-  const emergencyContacts: EmergencyContact[] = [
-    {
-      id: '1',
-      name: 'James Smith',
-      phone: '+234 812 345 6789',
-      relationship: 'Brother',
-    },
-    {
-      id: '2',
-      name: 'Mary Johnson',
-      phone: '+234 809 876 5432',
-      relationship: 'Sister',
-    },
-  ];
-
-  const handleEmergencyAlert = async () => {
-    setIsEmergencyLoading(true);
-    
+  // Get current location
+  const getLocation = async () => {
     try {
-      // In a real app, this would call the API to trigger emergency alert
-      // const response = await safetyService.triggerEmergencyAlert(rideId);
+      const { status } = await Location.requestForegroundPermissionsAsync();
       
-      // Simulate API call
-      setTimeout(() => {
-        setIsEmergencyLoading(false);
+      if (status !== 'granted') {
         Alert.alert(
-          'Emergency Alert Sent',
-          'Emergency services and your emergency contacts have been notified.',
+          'Location Permission Required',
+          'Safety features require location access to send your position during emergencies.',
           [{ text: 'OK' }]
         );
-      }, 1500);
+        return;
+      }
+      
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High
+      });
+      
+      setLocation({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude
+      });
     } catch (error) {
-      setIsEmergencyLoading(false);
-      Alert.alert('Error', 'Failed to send emergency alert. Please try again.');
+      console.error('Error getting location:', error);
+      Alert.alert(
+        'Location Error',
+        'Unable to get your current location. Some safety features may be limited.'
+      );
     }
   };
 
-  const handleCallPolice = () => {
-    setIsPoliceLoading(true);
-    // In a real app, this would trigger a phone call
-    setTimeout(() => {
-      setIsPoliceLoading(false);
-      Alert.alert('Calling Police', 'Connecting to emergency services (999)...');
-    }, 1000);
+  // Fetch emergency contacts
+  const fetchEmergencyContacts = async () => {
+    try {
+      setLoading(true);
+      const contacts = await safetyService.getEmergencyContacts();
+      setEmergencyContacts(contacts);
+    } catch (error) {
+      console.error('Error fetching emergency contacts:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleCallMedical = () => {
-    setIsMedicalLoading(true);
-    // In a real app, this would trigger a phone call
-    setTimeout(() => {
-      setIsMedicalLoading(false);
-      Alert.alert('Calling Medical Services', 'Connecting to medical emergency (112)...');
-    }, 1000);
+  // Fetch active SOS alerts
+  const fetchActiveSOS = async () => {
+    try {
+      const activeAlerts = await safetyService.getActiveSOS();
+      if (activeAlerts.length > 0) {
+        setActiveSOSId(activeAlerts[0].id || null);
+      }
+    } catch (error) {
+      console.error('Error fetching active SOS alerts:', error);
+    }
   };
 
-  const handleCallRoadAssistance = () => {
-    setIsRoadAssistanceLoading(true);
-    // In a real app, this would trigger a phone call
-    setTimeout(() => {
-      setIsRoadAssistanceLoading(false);
-      Alert.alert('Calling Road Assistance', 'Connecting to road assistance...');
-    }, 1000);
-  };
+  // Trigger SOS alert
+  const triggerSOS = async () => {
+    if (!location) {
+      Alert.alert(
+        'Location Required',
+        'We need your location to send an SOS alert. Please enable location services.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
 
-  const handleCallContact = (contact: EmergencyContact) => {
-    // In a real app, this would trigger a phone call
     Alert.alert(
-      'Call Emergency Contact',
-      `Calling ${contact.name} at ${contact.phone}...`
+      'Confirm Emergency',
+      'Are you in an emergency situation? This will alert emergency contacts and support.',
+      [
+        { 
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'YES, SEND SOS',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const result = await safetyService.triggerSOS(
+                location,
+                'Emergency assistance needed'
+              );
+              
+              if (result && result.sosId) {
+                setActiveSOSId(result.sosId);
+                Alert.alert(
+                  'SOS Alert Sent',
+                  'Emergency contacts and support have been notified. Help is on the way.',
+                  [{ text: 'OK' }]
+                );
+              }
+            } catch (error) {
+              console.error('Error triggering SOS:', error);
+              Alert.alert(
+                'SOS Alert Failed',
+                'Unable to send SOS alert. Please try calling emergency services directly.',
+                [{ text: 'OK' }]
+              );
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
     );
   };
 
+  // Cancel SOS alert
+  const cancelSOS = async () => {
+    if (!activeSOSId) return;
+
+    Alert.alert(
+      'Cancel SOS Alert',
+      'Are you sure you want to cancel the active SOS alert? Only do this if you are safe.',
+      [
+        { 
+          text: 'No, Keep Active',
+          style: 'cancel'
+        },
+        {
+          text: 'Yes, Cancel Alert',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const success = await safetyService.cancelSOS(activeSOSId, 'Cancelled by user');
+              
+              if (success) {
+                setActiveSOSId(null);
+                Alert.alert('SOS Alert Cancelled', 'Your SOS alert has been cancelled.');
+              }
+            } catch (error) {
+              console.error('Error cancelling SOS:', error);
+              Alert.alert('Error', 'Failed to cancel SOS alert. Please try again.');
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Call emergency services
+  const callEmergencyServices = () => {
+    Alert.alert(
+      'Call Emergency Services',
+      'This will call the local emergency number (911/112/999).',
+      [
+        { 
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Call Now',
+          style: 'destructive',
+          onPress: () => {
+            // Use appropriate emergency number based on region
+            const emergencyNumber = '911'; // Default to US
+            Linking.openURL(`tel:${emergencyNumber}`);
+          }
+        }
+      ]
+    );
+  };
+
+  // Navigate to add emergency contact screen
+  const navigateToAddContact = () => {
+    // This would be implemented separately
+    Alert.alert('Add Contact', 'Navigate to add emergency contact screen');
+  };
+
+  // Report safety incident
+  const reportIncident = () => {
+    // This would be implemented separately
+    Alert.alert('Report Incident', 'Navigate to report safety incident screen');
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#E74C3C" />
-      
+    <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Image
-            source={require('../../../assets/images/back-arrow-white.png')}
-            style={styles.backIcon}
-          />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Emergency & Safety</Text>
-        <View style={styles.placeholder} />
+        <Text style={styles.headerTitle}>Safety Center</Text>
       </View>
 
-      <ScrollView style={styles.content}>
-        <View style={styles.emergencySection}>
-          <TouchableOpacity
-            style={[
-              styles.emergencyButton,
-              isEmergencyLoading && styles.buttonDisabled,
-            ]}
-            onPress={handleEmergencyAlert}
-            disabled={isEmergencyLoading}
+      {/* SOS Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Emergency Assistance</Text>
+        
+        {activeSOSId ? (
+          <View style={styles.activeSOSContainer}>
+            <Text style={styles.activeSOSText}>
+              SOS ALERT ACTIVE
+            </Text>
+            <Text style={styles.activeSOSSubtext}>
+              Emergency contacts and support have been notified
+            </Text>
+            <TouchableOpacity 
+              style={styles.cancelSOSButton}
+              onPress={cancelSOS}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.cancelSOSButtonText}>CANCEL SOS ALERT</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.sosButtonsContainer}>
+            <TouchableOpacity 
+              style={styles.sosButton}
+              onPress={triggerSOS}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="warning" size={24} color="#fff" />
+                  <Text style={styles.sosButtonText}>SOS ALERT</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.callButton}
+              onPress={callEmergencyServices}
+            >
+              <Ionicons name="call" size={24} color="#fff" />
+              <Text style={styles.callButtonText}>CALL EMERGENCY</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
+      {/* Emergency Contacts Section */}
+      <View style={styles.section}>
+        <View style={styles.sectionTitleRow}>
+          <Text style={styles.sectionTitle}>Emergency Contacts</Text>
+          <TouchableOpacity 
+            style={styles.addButton}
+            onPress={navigateToAddContact}
           >
-            {isEmergencyLoading ? (
-              <ActivityIndicator size="large" color="#FFFFFF" />
-            ) : (
-              <>
-                <Image
-                  source={require('../../../assets/images/warning-icon.png')}
-                  style={styles.emergencyIcon}
-                />
-                <Text style={styles.emergencyButtonText}>
-                  EMERGENCY ALERT
+            <Ionicons name="add" size={20} color={colors.primary} />
+            <Text style={styles.addButtonText}>Add</Text>
+          </TouchableOpacity>
+        </View>
+        
+        {loading ? (
+          <ActivityIndicator style={styles.loader} color={colors.primary} />
+        ) : (
+          <>
+            {emergencyContacts.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>
+                  No emergency contacts added. Add contacts who should be notified in case of emergency.
                 </Text>
-              </>
+              </View>
+            ) : (
+              emergencyContacts.map((contact, index) => (
+                <View key={contact.id || index} style={styles.contactCard}>
+                  <View style={styles.contactInfo}>
+                    <Text style={styles.contactName}>{contact.name}</Text>
+                    <Text style={styles.contactRelationship}>{contact.relationship}</Text>
+                    <Text style={styles.contactPhone}>{contact.phoneNumber}</Text>
+                  </View>
+                  <TouchableOpacity style={styles.contactActionButton}>
+                    <Ionicons name="ellipsis-vertical" size={20} color="#666" />
+                  </TouchableOpacity>
+                </View>
+              ))
             )}
-          </TouchableOpacity>
-          
-          <Text style={styles.emergencyDescription}>
-            Tap the button above to alert emergency services and your emergency contacts.
-            Your current location will be shared automatically.
-          </Text>
-        </View>
+          </>
+        )}
+      </View>
 
-        <View style={styles.sectionTitle}>
-          <Text style={styles.sectionTitleText}>Emergency Services</Text>
-        </View>
-
-        <View style={styles.emergencyServicesContainer}>
-          <TouchableOpacity
-            style={styles.serviceCard}
-            onPress={handleCallPolice}
-            disabled={isPoliceLoading}
-          >
-            <View style={[styles.serviceIconContainer, styles.policeColor]}>
-              {isPoliceLoading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Image
-                  source={require('../../../assets/images/police-icon.png')}
-                  style={styles.serviceIcon}
-                />
-              )}
-            </View>
-            <Text style={styles.serviceTitle}>Police</Text>
-            <Text style={styles.servicePhone}>999</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.serviceCard}
-            onPress={handleCallMedical}
-            disabled={isMedicalLoading}
-          >
-            <View style={[styles.serviceIconContainer, styles.medicalColor]}>
-              {isMedicalLoading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Image
-                  source={require('../../../assets/images/medical-icon.png')}
-                  style={styles.serviceIcon}
-                />
-              )}
-            </View>
-            <Text style={styles.serviceTitle}>Medical</Text>
-            <Text style={styles.servicePhone}>112</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.serviceCard}
-            onPress={handleCallRoadAssistance}
-            disabled={isRoadAssistanceLoading}
-          >
-            <View style={[styles.serviceIconContainer, styles.roadAssistanceColor]}>
-              {isRoadAssistanceLoading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Image
-                  source={require('../../../assets/images/assistance-icon.png')}
-                  style={styles.serviceIcon}
-                />
-              )}
-            </View>
-            <Text style={styles.serviceTitle}>Road Assistance</Text>
-            <Text style={styles.servicePhone}>0800 123 456</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.sectionTitle}>
-          <Text style={styles.sectionTitleText}>Emergency Contacts</Text>
-        </View>
-
-        <View style={styles.contactsContainer}>
-          {emergencyContacts.length > 0 ? (
-            emergencyContacts.map((contact) => (
-              <TouchableOpacity
-                key={contact.id}
-                style={styles.contactCard}
-                onPress={() => handleCallContact(contact)}
-              >
-                <View style={styles.contactInfo}>
-                  <Text style={styles.contactName}>{contact.name}</Text>
-                  <Text style={styles.contactRelationship}>{contact.relationship}</Text>
-                  <Text style={styles.contactPhone}>{contact.phone}</Text>
-                </View>
-                <View style={styles.callIconContainer}>
-                  <Image
-                    source={require('../../../assets/images/phone-icon.png')}
-                    style={styles.callIcon}
-                  />
-                </View>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <View style={styles.noContactsContainer}>
-              <Text style={styles.noContactsText}>
-                No emergency contacts added yet.
-              </Text>
-              <TouchableOpacity
-                style={styles.addContactButton}
-                onPress={() => navigation.navigate('Profile')}
-              >
-                <Text style={styles.addContactButtonText}>Add Contacts</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.safetyTipsContainer}>
-          <Text style={styles.safetyTipsTitle}>Safety Tips</Text>
-          
-          <View style={styles.safetyTipItem}>
-            <Text style={styles.safetyTipNumber}>1</Text>
-            <Text style={styles.safetyTipText}>
-              Always wear appropriate safety gear, including a helmet.
+      {/* Safety Features Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Safety Features</Text>
+        
+        <TouchableOpacity style={styles.featureCard} onPress={reportIncident}>
+          <Ionicons name="alert-circle-outline" size={24} color={colors.primary} />
+          <View style={styles.featureContent}>
+            <Text style={styles.featureTitle}>Report Safety Concern</Text>
+            <Text style={styles.featureDescription}>
+              Report unsafe conditions, harassment, or other incidents
             </Text>
           </View>
-          
-          <View style={styles.safetyTipItem}>
-            <Text style={styles.safetyTipNumber}>2</Text>
-            <Text style={styles.safetyTipText}>
-              Obey traffic laws and avoid speeding.
+          <Ionicons name="chevron-forward" size={20} color="#666" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.featureCard}>
+          <Ionicons name="shield-checkmark-outline" size={24} color={colors.primary} />
+          <View style={styles.featureContent}>
+            <Text style={styles.featureTitle}>Safety Checklist</Text>
+            <Text style={styles.featureDescription}>
+              Review safety tips and best practices
             </Text>
           </View>
-          
-          <View style={styles.safetyTipItem}>
-            <Text style={styles.safetyTipNumber}>3</Text>
-            <Text style={styles.safetyTipText}>
-              Maintain a safe distance from other vehicles.
+          <Ionicons name="chevron-forward" size={20} color="#666" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.featureCard}>
+          <Ionicons name="location-outline" size={24} color={colors.primary} />
+          <View style={styles.featureContent}>
+            <Text style={styles.featureTitle}>Share Live Location</Text>
+            <Text style={styles.featureDescription}>
+              Share your location with trusted contacts
             </Text>
           </View>
-          
-          <View style={styles.safetyTipItem}>
-            <Text style={styles.safetyTipNumber}>4</Text>
-            <Text style={styles.safetyTipText}>
-              Do not use your phone while riding.
-            </Text>
-          </View>
-          
-          <View style={styles.safetyTipItem}>
-            <Text style={styles.safetyTipNumber}>5</Text>
-            <Text style={styles.safetyTipText}>
-              Ensure your vehicle is in good condition before starting your ride.
-            </Text>
-          </View>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+          <Ionicons name="chevron-forward" size={20} color="#666" />
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#f8f8f8',
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#E74C3C',
-  },
-  backButton: {
-    padding: 8,
-  },
-  backIcon: {
-    width: 20,
-    height: 20,
-    tintColor: '#FFFFFF',
+    padding: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
   },
-  placeholder: {
-    width: 36,
-  },
-  content: {
-    flex: 1,
-  },
-  emergencySection: {
-    padding: 24,
-    backgroundColor: '#FFF5F5',
-  },
-  emergencyButton: {
-    backgroundColor: '#E74C3C',
-    borderRadius: 12,
-    paddingVertical: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    flexDirection: 'row',
-  },
-  emergencyIcon: {
-    width: 32,
-    height: 32,
-    marginRight: 12,
-    tintColor: '#FFFFFF',
-  },
-  emergencyButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  emergencyDescription: {
-    fontSize: 14,
-    color: '#666666',
-    lineHeight: 20,
-  },
-  buttonDisabled: {
-    opacity: 0.7,
+  section: {
+    backgroundColor: '#fff',
+    padding: 16,
+    marginTop: 12,
+    borderRadius: 8,
+    marginHorizontal: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
   sectionTitle: {
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    backgroundColor: '#F9F9F9',
-  },
-  sectionTitleText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
-    color: '#333333',
+    marginBottom: 16,
+    color: '#333',
   },
-  emergencyServicesContainer: {
+  sectionTitleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-  },
-  serviceCard: {
     alignItems: 'center',
-    width: '30%',
+    marginBottom: 16,
   },
-  serviceIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  sosButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  sosButton: {
+    flex: 1,
+    backgroundColor: 'red',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  sosButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  callButton: {
+    flex: 1,
+    backgroundColor: '#007bff',
+    padding: 16,
+    borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  callButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  activeSOSContainer: {
+    backgroundColor: '#ffebee',
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'red',
+    alignItems: 'center',
+  },
+  activeSOSText: {
+    color: 'red',
+    fontWeight: '700',
+    fontSize: 18,
     marginBottom: 8,
   },
-  policeColor: {
-    backgroundColor: '#3498DB',
+  activeSOSSubtext: {
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 16,
   },
-  medicalColor: {
-    backgroundColor: '#E74C3C',
+  cancelSOSButton: {
+    backgroundColor: '#333',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
   },
-  roadAssistanceColor: {
-    backgroundColor: '#F39C12',
-  },
-  serviceIcon: {
-    width: 28,
-    height: 28,
-    tintColor: '#FFFFFF',
-  },
-  serviceTitle: {
-    fontSize: 14,
+  cancelSOSButtonText: {
+    color: '#fff',
     fontWeight: '600',
-    color: '#333333',
-    marginBottom: 4,
   },
-  servicePhone: {
-    fontSize: 12,
-    color: '#666666',
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
-  contactsContainer: {
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
+  addButtonText: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  emptyContainer: {
+    padding: 16,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    alignItems: 'center',
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#666',
   },
   contactCard: {
     flexDirection: 'row',
+    padding: 12,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    marginBottom: 8,
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
   },
   contactInfo: {
     flex: 1,
@@ -440,84 +498,44 @@ const styles = StyleSheet.create({
   contactName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333333',
-    marginBottom: 4,
+    color: '#333',
   },
   contactRelationship: {
-    fontSize: 12,
-    color: '#666666',
+    fontSize: 14,
+    color: '#666',
     marginBottom: 4,
   },
   contactPhone: {
     fontSize: 14,
-    color: '#333333',
+    color: '#666',
   },
-  callIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#2E86DE',
-    justifyContent: 'center',
-    alignItems: 'center',
+  contactActionButton: {
+    padding: 8,
   },
-  callIcon: {
-    width: 20,
-    height: 20,
-    tintColor: '#FFFFFF',
-  },
-  noContactsContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  noContactsText: {
-    fontSize: 14,
-    color: '#666666',
-    marginBottom: 12,
-  },
-  addContactButton: {
-    backgroundColor: '#2E86DE',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+  featureCard: {
+    flexDirection: 'row',
+    padding: 16,
+    backgroundColor: '#f9f9f9',
     borderRadius: 8,
+    marginBottom: 8,
+    alignItems: 'center',
+    gap: 12,
   },
-  addContactButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+  featureContent: {
+    flex: 1,
   },
-  safetyTipsContainer: {
-    padding: 24,
-    backgroundColor: '#FFFFFF',
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  safetyTipsTitle: {
+  featureTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333333',
-    marginBottom: 16,
+    color: '#333',
+    marginBottom: 4,
   },
-  safetyTipItem: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  safetyTipNumber: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#F2F2F2',
-    textAlign: 'center',
-    lineHeight: 24,
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#333333',
-    marginRight: 12,
-  },
-  safetyTipText: {
-    flex: 1,
+  featureDescription: {
     fontSize: 14,
-    color: '#333333',
-    lineHeight: 20,
+    color: '#666',
+  },
+  loader: {
+    marginVertical: 20,
   },
 });
 

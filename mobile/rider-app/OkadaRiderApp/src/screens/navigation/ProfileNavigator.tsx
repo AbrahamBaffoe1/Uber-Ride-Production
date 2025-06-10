@@ -8,7 +8,6 @@ import ProfileScreen from '../profile/ProfileScreen';
 import SettingsScreen from '../settings/SettingsScreen';
 import NotificationsScreen from '../notifications/NotificationsScreen';
 import SupportScreen from '../support/SupportScreen';
-import SafetyScreen from '../safety/SafetyScreen';
 import ComplianceScreen from '../compliance/ComplianceScreen';
 
 const Stack = createStackNavigator<ProfileStackParamList>();
@@ -25,7 +24,6 @@ const ProfileNavigator = () => {
       <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="Support" component={SupportScreen} />
-      <Stack.Screen name="Safety" component={SafetyScreen} />
       <Stack.Screen name="Compliance" component={ComplianceScreen} />
     </Stack.Navigator>
   );

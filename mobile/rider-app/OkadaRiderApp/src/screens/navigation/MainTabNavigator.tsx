@@ -1,4 +1,4 @@
-// src/navigation/MainTabNavigator.tsx
+// src/screens/navigation/MainTabNavigator.tsx
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Image, StyleSheet } from 'react-native';
@@ -9,6 +9,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import HomeNavigator from './HomeNavigator';
 import RidesNavigator from './RidesNavigator';
 import EarningsNavigator from './EarningsNavigator';
+import SafetyNavigator from './SafetyNavigator';
 import ProfileNavigator from './ProfileNavigator';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -22,6 +23,7 @@ const MainTabNavigator = () => {
         tabBarInactiveTintColor: '#9E9E9E',
         tabBarLabelStyle: styles.tabBarLabel,
         tabBarStyle: styles.tabBar,
+        tabBarHideOnKeyboard: true,
       }}
     >
       <Tab.Screen
@@ -52,6 +54,16 @@ const MainTabNavigator = () => {
             <Icon name="cash-outline" size={24} color={color} />
           ),
           tabBarLabel: 'Earnings',
+        }}
+      />
+      <Tab.Screen
+        name="SafetyTab"
+        component={SafetyNavigator}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="shield-checkmark-outline" size={24} color={color} />
+          ),
+          tabBarLabel: 'Safety',
         }}
       />
       <Tab.Screen

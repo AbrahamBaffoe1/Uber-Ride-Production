@@ -5,6 +5,8 @@
 import express from 'express';
 import { authenticate } from '../middlewares/auth.middleware.js';
 import User from '../models/User.js';
+import mongoose from 'mongoose';
+const { ObjectId } = mongoose.Types;
 
 const router = express.Router();
 
@@ -354,6 +356,135 @@ router.put('/preferences/currency', authenticate, async (req, res) => {
     return res.status(500).json({
       status: 'error',
       message: 'Failed to update currency preference'
+    });
+  }
+});
+
+/**
+ * @route GET /api/v1/mongo/users/rider-stats
+ * @desc Get rider's statistics and performance metrics
+ * @access Private (rider only)
+ */
+router.get('/rider-stats', authenticate, async (req, res) => {
+  try {
+    // Determine which rider ID to use
+    let riderId = req.query.riderId || req.user._id;
+    
+    // Check if user is a rider or admin
+    if (req.user.role !== 'rider' && req.user.role !== 'admin' && req.user._id.toString() !== riderId.toString()) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Access denied. You can only view your own rider stats.'
+      });
+    }
+    
+    // Get the rides collection
+    const ridesCollection = mongoose.connection.collection('rides');
+    
+    // Get all rides for this rider
+    const allRides = await ridesCollection.find({
+      riderId: ObjectId(riderId)
+    }).toArray();
+    
+    // Get completed rides
+    const completedRides = allRides.filter(ride => ride.status === 'completed');
+    
+    // Get cancelled rides
+    const cancelledRides = allRides.filter(ride => ride.status === 'cancelled');
+    
+    // Calculate completion rate
+    const totalRides = allRides.length;
+    const completionRate = totalRides > 0 
+      ? (completedRides.length / totalRides) * 100 
+      : 0;
+    
+    // Calculate acceptance rate
+    const acceptedRides = allRides.filter(ride => ride.status !== 'rejected');
+    const acceptanceRate = totalRides > 0 
+      ? (acceptedRides.length / totalRides) * 100 
+      : 0;
+    
+    // Calculate ratings
+    let totalRating = 0;
+    let totalRatings = 0;
+    
+    completedRides.forEach(ride => {
+      if (ride.rating && ride.rating > 0) {
+        totalRating += ride.rating;
+        totalRatings += 1;
+      }
+    });
+    
+    const averageRating = totalRatings > 0 
+      ? totalRating / totalRatings 
+      : 0;
+    
+    // Calculate earnings
+    const totalEarnings = completedRides.reduce((sum, ride) => {
+      return sum + (ride.fare?.riderAmount || ride.fare?.amount || 0);
+    }, 0);
+    
+    // Calculate weekly and monthly earnings
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Start of current week (Sunday)
+    weekStart.setHours(0, 0, 0, 0);
+    
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1); // Start of current month
+    
+    const weeklyEarnings = completedRides
+      .filter(ride => new Date(ride.completedAt) >= weekStart)
+      .reduce((sum, ride) => sum + (ride.fare?.riderAmount || ride.fare?.amount || 0), 0);
+    
+    const monthlyEarnings = completedRides
+      .filter(ride => new Date(ride.completedAt) >= monthStart)
+      .reduce((sum, ride) => sum + (ride.fare?.riderAmount || ride.fare?.amount || 0), 0);
+    
+    // Calculate peak hours (simplified version)
+    const hourCounts = {};
+    
+    completedRides.forEach(ride => {
+      if (ride.createdAt) {
+        const hour = new Date(ride.createdAt).getHours();
+        hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+      }
+    });
+    
+    // Find the hour with most rides
+    let peakHour = 0;
+    let maxRides = 0;
+    
+    for (const [hour, count] of Object.entries(hourCounts)) {
+      if (count > maxRides) {
+        maxRides = count;
+        peakHour = parseInt(hour);
+      }
+    }
+    
+    // Compile and return rider stats
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        riderId: riderId.toString(),
+        totalEarnings,
+        weeklyEarnings,
+        monthlyEarnings,
+        completedRides: completedRides.length,
+        cancelledRides: cancelledRides.length,
+        acceptanceRate: parseFloat(acceptanceRate.toFixed(1)),
+        completionRate: parseFloat(completionRate.toFixed(1)),
+        averageRating: parseFloat(averageRating.toFixed(1)),
+        totalRatings,
+        peakHours: peakHour,
+        lastUpdated: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching rider stats:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch rider statistics',
+      error: error.message
     });
   }
 });

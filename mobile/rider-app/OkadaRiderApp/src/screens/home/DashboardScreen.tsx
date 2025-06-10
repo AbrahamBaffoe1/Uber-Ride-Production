@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,13 +13,16 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useNavigation } from '@react-navigation/native';
 import { authService } from '../../api/services/authService';
-import { rideService } from '../../api/services/rideService';
-import { earningsService } from '../../api/services/earningsService';
+import { rideService } from '../../api/services/ride.service';
+import { dailyEarningsService } from '../../api/services/daily-earnings.service';
+import { riderStatsService } from '../../api/services/rider-stats.service';
+import { socketService } from '../../api/services/socket.service';
 
 // Define ride request interface
 interface RideRequest {
@@ -65,7 +68,7 @@ const useCurrentUser = () => {
 
 const Dashboard = () => {
   const navigation = useNavigation();
-  const { name: userName } = useCurrentUser();
+  const { name: userName, userId } = useCurrentUser();
   const [isOnline, setIsOnline] = useState(false);
   const [rideRequests, setRideRequests] = useState<RideRequest[]>([]);
   const [todayEarnings, setTodayEarnings] = useState(0);
@@ -74,52 +77,145 @@ const Dashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [socketInitialized, setSocketInitialized] = useState(false);
   
   // Animation values
   const fadeAnim = useState(new Animated.Value(0))[0];
   const slideAnim = useState(new Animated.Value(40))[0];
+  
+  // Refs
+  const scrollViewRef = useRef<ScrollView>(null);
 
+  // Initialize socket connection
+  const initializeSocket = useCallback(async () => {
+    try {
+      if (!socketInitialized) {
+        console.log('Initializing socket connection...');
+        await socketService.initialize();
+        setSocketInitialized(true);
+        
+        // Set up listener for new ride requests via socket
+        socketService.on('ride:new_request', (data: any) => {
+          console.log('New ride request received via socket:', data);
+          // Refresh ride requests
+          loadRideRequests();
+        });
+        
+        socketService.on('ride:request', (data: any) => {
+          console.log('New ride request (legacy) received via socket:', data);
+          // Refresh ride requests
+          loadRideRequests();
+        });
+      }
+    } catch (error) {
+      console.error('Failed to initialize socket:', error);
+    }
+  }, [socketInitialized]);
+  
+  // Load ride requests
+  const loadRideRequests = useCallback(async () => {
+    if (!isOnline) return;
+    
+    try {
+      console.log('Fetching ride requests...');
+      const rideData = await rideService.getRiderRides();
+      const requests = rideData.rideRequests || [];
+      
+      // Map to the expected format if needed
+      const formattedRequests = requests.map(req => ({
+        id: req.id,
+        passengerName: req.passenger?.name || 'Unknown',
+        passengerRating: req.passenger?.rating || 0,
+        pickupLocation: req.pickupLocation?.address || 'Unknown location',
+        dropoffLocation: req.dropoffLocation?.address || 'Unknown location',
+        distance: typeof req.distance === 'number' 
+          ? `${req.distance.toFixed(1)} km` 
+          : req.distance || 'Unknown',
+        estimatedFare: typeof req.fare === 'number' 
+          ? `₦${req.fare.toLocaleString()}` 
+          : req.fare || 'Unknown',
+        estimatedTime: req.estimatedDuration || 'Unknown'
+      }));
+      
+      setRideRequests(formattedRequests);
+      console.log(`Loaded ${formattedRequests.length} ride requests`);
+    } catch (error) {
+      console.error('Error fetching ride requests:', error);
+      setRideRequests([]);
+    }
+  }, [isOnline]);
+  
   // Load user data and stats with retry capability
   const loadUserData = useCallback(async (isRetry = false) => {
     try {
       if (isRetry) {
         setRetrying(true);
-      } else {
+      } else if (!refreshing) {
         setIsLoading(true);
       }
       
       setLoadingError(null);
       
-      // Get earnings data
-      const earningsData = await earningsService.getTodayEarnings();
-      if (earningsData) {
+      // We'll use Promise.allSettled to handle multiple API calls in parallel
+      // This ensures that if one fails, we can still display the others that succeed
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      
+      console.log('Fetching earnings and stats data...');
+      const [earningsResult, statsResult] = await Promise.allSettled([
+        dailyEarningsService.getDailyEarnings(today),
+        riderStatsService.getRiderStats()
+      ]);
+      
+      // Handle earnings data
+      if (earningsResult.status === 'fulfilled') {
+        const earningsData = earningsResult.value;
         setTodayEarnings(earningsData.amount || 0);
-        setTodayTrips(earningsData.totalTrips || 0);
+        setTodayTrips(earningsData.ridesCount || 0);
+        console.log(`Today's earnings: ₦${earningsData.amount}, Trips: ${earningsData.ridesCount}`);
+      } else {
+        console.error('Failed to load earnings data:', earningsResult.reason);
       }
       
-      try {
-        // Get rating - this might fail if server data is not available
-        const userProfile = await earningsService.getRiderStats();
-        if (userProfile) {
-          setRatingAverage(userProfile.averageRating || 0);
-        }
-      } catch (ratingError: any) {
-        console.warn('Error loading rating data:', ratingError);
-        // Just log the error but don't fail the whole dashboard
+      // Handle rider stats data
+      if (statsResult.status === 'fulfilled') {
+        const userProfile = statsResult.value;
+        setRatingAverage(userProfile.averageRating || 0);
+        console.log(`Rider rating: ${userProfile.averageRating}`);
+      } else {
+        console.error('Failed to load rider stats:', statsResult.reason);
+      }
+      
+      // If both requests failed, show an error
+      if (earningsResult.status === 'rejected' && statsResult.status === 'rejected') {
+        setLoadingError('Unable to load rider data. Please check your connection and try again.');
       }
       
       setRetrying(false);
       setIsLoading(false);
+      setRefreshing(false);
     } catch (error: any) {
       console.error('Error loading dashboard data:', error);
       setLoadingError(error.message || 'Failed to load rider data');
       setRetrying(false);
       setIsLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  }, [refreshing]);
   
-  // Initial data load
+  // Handle pull-to-refresh
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadUserData();
+    loadRideRequests();
+  }, [loadUserData, loadRideRequests]);
+  
+  // Initialize component and load data
   useEffect(() => {
+    // Initialize socket first
+    initializeSocket();
+    
+    // Load user data and start animations
     loadUserData();
     
     // Start animations
@@ -135,29 +231,43 @@ const Dashboard = () => {
         useNativeDriver: true,
       })
     ]).start();
-  }, []);
-  
-  // Load ride requests when going online
-  useEffect(() => {
-    const fetchRideRequests = async () => {
-      if (isOnline) {
-        try {
-          const requests = await rideService.getAvailableRideRequests();
-          setRideRequests(requests || []);
-        } catch (error) {
-          console.error('Error fetching ride requests:', error);
-          setRideRequests([]);
+    
+    // Check if rider is currently online
+    const checkOnlineStatus = async () => {
+      try {
+        // If socket is initialized, check status
+        if (socketInitialized) {
+          const currentStatus = socketService.getCurrentStatus();
+          setIsOnline(currentStatus === 'online');
+          console.log(`Current rider status: ${currentStatus}`);
         }
+      } catch (error) {
+        console.error('Error checking online status:', error);
       }
     };
     
-    fetchRideRequests();
+    checkOnlineStatus();
+    
+    // Cleanup function
+    return () => {
+      // Clean up socket listeners if needed
+      if (socketInitialized) {
+        socketService.off('ride:new_request', loadRideRequests);
+        socketService.off('ride:request', loadRideRequests);
+      }
+    };
+  }, [socketInitialized]);
+  
+  // Load ride requests when going online and set up polling
+  useEffect(() => {
+    // Initial fetch when going online
+    loadRideRequests();
     
     // Set up polling for ride requests when online
     let requestInterval: NodeJS.Timeout;
     
     if (isOnline) {
-      requestInterval = setInterval(fetchRideRequests, 30000); // Poll every 30 seconds
+      requestInterval = setInterval(loadRideRequests, 30000); // Poll every 30 seconds
     }
     
     return () => {
@@ -165,30 +275,48 @@ const Dashboard = () => {
         clearInterval(requestInterval);
       }
     };
-  }, [isOnline]);
+  }, [isOnline, loadRideRequests]);
 
   const handleToggleOnline = async () => {
     try {
-      // In a real implementation, we would update the rider's online status on the server
+      // Show loading indicator when changing status
+      setIsLoading(true);
+      
+      // Use both socket and API to update availability
       const newStatus = !isOnline;
-      await rideService.updateRiderStatus(newStatus);
+      console.log(`Setting rider status to: ${newStatus ? 'Online' : 'Offline'}`);
+      
+      // Update availability
+      await rideService.updateAvailability(newStatus);
       setIsOnline(newStatus);
       
       // If going online, fetch available ride requests
       if (newStatus) {
-        const requests = await rideService.getAvailableRideRequests();
-        setRideRequests(requests || []);
+        await loadRideRequests();
+      } else {
+        // Clear ride requests when going offline
+        setRideRequests([]);
       }
+      
+      setIsLoading(false);
     } catch (error) {
       console.error('Error updating rider status:', error);
-      Alert.alert('Error', 'Failed to update status. Please try again.');
+      Alert.alert(
+        'Status Update Error', 
+        'Failed to update your online status. Please check your connection and try again.'
+      );
+      setIsLoading(false);
     }
   };
 
   const handleAcceptRide = async (id: string) => {
     try {
+      // Show loading while accepting ride
+      setIsLoading(true);
+      console.log(`Accepting ride: ${id}`);
+      
       // Call API to accept ride
-      const result = await rideService.acceptRideRequest(id);
+      const result = await rideService.acceptRide(id);
       
       if (result && result.success) {
         // Remove from available requests
@@ -197,6 +325,9 @@ const Dashboard = () => {
         
         // Get ride details
         const selectedRide = rideRequests.find(r => r.id === id);
+        
+        // Update status to busy
+        setIsOnline(true); // Make sure we're online
         
         // Navigate to ride details using the correct navigation path for nested navigators
         // @ts-ignore - TypeScript doesn't understand the nested navigation well, but this is correct
@@ -211,25 +342,42 @@ const Dashboard = () => {
           }
         });
       } else {
-        Alert.alert('Error', result?.message || 'Failed to accept ride. Please try again.');
+        Alert.alert(
+          'Could Not Accept Ride', 
+          result?.message || 'Failed to accept this ride. It may have been cancelled or accepted by another rider.'
+        );
       }
-    } catch (error) {
+      
+      setIsLoading(false);
+    } catch (error: any) {
       console.error('Error accepting ride:', error);
-      Alert.alert('Error', 'Failed to accept ride. Please try again.');
+      Alert.alert(
+        'Ride Acceptance Error', 
+        error?.message || 'Failed to accept ride. Please check your connection and try again.'
+      );
+      setIsLoading(false);
     }
   };
 
   const handleDeclineRide = async (id: string) => {
     try {
+      console.log(`Declining ride: ${id}`);
+      
       // Call API to decline ride
-      await rideService.declineRideRequest(id);
+      await rideService.rejectRide(id, 'Rider declined');
       
       // Remove from available requests
       const updatedRequests = rideRequests.filter(request => request.id !== id);
       setRideRequests(updatedRequests);
-    } catch (error) {
+      
+      // Show success message
+      Alert.alert('Ride Declined', 'You have successfully declined this ride request.');
+    } catch (error: any) {
       console.error('Error declining ride:', error);
-      Alert.alert('Error', 'Failed to decline ride. Please try again.');
+      Alert.alert(
+        'Error Declining Ride', 
+        error?.message || 'Failed to decline ride. The request may have expired or been cancelled.'
+      );
     }
   };
 
@@ -344,8 +492,17 @@ const Dashboard = () => {
       </View>
 
       <ScrollView
+        ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={['#3a7bd5']}
+            tintColor="#3a7bd5"
+          />
+        }
       >
         {isLoading ? (
           <View style={styles.loadingContainer}>
@@ -561,6 +718,59 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#333',
     marginRight: 8,
+  },
+  
+  // Error state
+  errorContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 30,
+    margin: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  errorIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#fff3f3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  errorIcon: {
+    fontSize: 32,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#e74c3c',
+    marginBottom: 8,
+  },
+  errorMessage: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  retryButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  retryButtonGradient: {
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
   },
   
   // Stats section
@@ -810,8 +1020,8 @@ const styles = StyleSheet.create({
   emptyStateContainer: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 30,
-    marginHorizontal: 16,
+    padding: 40,
+    margin: 16,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
@@ -823,7 +1033,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f0f8ff',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -836,6 +1046,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 8,
+    textAlign: 'center',
   },
   emptyStateMessage: {
     fontSize: 14,
@@ -848,8 +1059,8 @@ const styles = StyleSheet.create({
   offlineStateContainer: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 30,
-    marginHorizontal: 16,
+    padding: 40,
+    margin: 16,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
@@ -861,7 +1072,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fff5f5',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -874,13 +1085,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 8,
+    textAlign: 'center',
   },
   offlineStateMessage: {
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   goOnlineButton: {
     borderRadius: 12,
@@ -895,94 +1107,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 16,
-  },
-  
-  // Error state
-  errorContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 30,
-    margin: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 5,
-  },
-  errorIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#fff3f3',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  errorIcon: {
-    fontSize: 32,
-  },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#e74c3c',
-    marginBottom: 8,
-  },
-  errorMessage: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  retryButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  retryButtonGradient: {
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  
-  // Quick links footer
-  quickLinksContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  quickLinks: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 12,
-  },
-  quickLinkItem: {
-    alignItems: 'center',
-  },
-  quickLinkIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f0f0f0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-  quickLinkIconText: {
-    fontSize: 18,
-  },
-  quickLinkText: {
-    fontSize: 12,
-    color: '#666',
   },
 });
 

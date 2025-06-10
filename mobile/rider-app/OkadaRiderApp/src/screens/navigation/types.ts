@@ -55,6 +55,7 @@ export type MainTabParamList = {
   HomeTab: NavigatorScreenParams<HomeStackParamList>;
   RidesTab: NavigatorScreenParams<RidesStackParamList>;
   EarningsTab: NavigatorScreenParams<EarningsStackParamList>;
+  SafetyTab: NavigatorScreenParams<SafetyStackParamList>;
   ProfileTab: NavigatorScreenParams<ProfileStackParamList>;
 };
 
@@ -89,15 +90,23 @@ export type EarningsStackParamList = {
   };
 };
 
+// Safety Stack - Safety-related screens
+export type SafetyStackParamList = {
+  SafetyCenter: undefined;
+  EmergencyContacts: undefined;
+  ReportIncident: {
+    rideId?: string;
+  };
+  SafetyTips: undefined;
+  SOSHistory: undefined;
+};
+
 // Profile Stack - Profile-related screens
 export type ProfileStackParamList = {
   ProfileOverview: undefined;
   Settings: undefined;
   Notifications: undefined;
   Support: undefined;
-  Safety: {
-    rideId?: string;
-  };
   Compliance: undefined;
 };
 

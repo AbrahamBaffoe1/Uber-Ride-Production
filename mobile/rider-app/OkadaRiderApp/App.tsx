@@ -7,6 +7,9 @@ import { store } from '../OkadaRiderApp/src/redux/store';
 import RootNavigator from '../OkadaRiderApp/src/screens/navigation/RootNavigator';
 import FlashMessage from 'react-native-flash-message';
 import { authService } from './src/api/services/authService';
+import NetworkStatusIndicator from './src/components/common/NetworkStatusIndicator';
+import { apiClient } from './src/api/client';
+import networkService from './src/services/network.service';
 
 // Create a context to track authentication state throughout the app
 export const AuthContext = createContext<{
@@ -35,6 +38,15 @@ const App = () => {
   const [userType, setUserType] = useState<'rider' | 'passenger' | 'admin' | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
+
+  // Cleanup resources when app is unmounted
+  useEffect(() => {
+    return () => {
+      // Cleanup network-related resources
+      networkService.cleanup();
+      apiClient.cleanup();
+    };
+  }, []);
 
   // Check authentication status when app starts
   useEffect(() => {
@@ -90,6 +102,7 @@ const App = () => {
         <SafeAreaProvider>
           <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
           <RootNavigator />
+          <NetworkStatusIndicator />
           <FlashMessage position="top" />
         </SafeAreaProvider>
       </AuthContext.Provider>
