@@ -5,7 +5,7 @@
 import express from 'express';
 import { authenticate } from '../middlewares/auth.middleware.js';
 import { hasAnyRole } from '../middlewares/role.middleware.js';
-import { logInfo, logError } from '../../services/logging.service.js';
+import { log } from '../../services/logging.service.js';
 
 // Import analytics-related route files
 import otpAnalyticsRoutes from './otp-analytics.routes.js';
@@ -38,7 +38,7 @@ router.get('/performance-metrics', authenticate, hasAnyRole(['admin']), async (r
       data: metricsData
     });
   } catch (error) {
-    logError('Performance metrics error:', error);
+    log('system', 'error', 'Performance metrics error:', { error });
     return res.status(500).json({
       success: false,
       message: 'Failed to get performance metrics',
@@ -65,7 +65,7 @@ router.get('/revenue-trend', authenticate, hasAnyRole(['admin']), async (req, re
       data: trendData
     });
   } catch (error) {
-    logError('Revenue trend error:', error);
+    log('system', 'error', 'Revenue trend error:', { error });
     return res.status(500).json({
       success: false,
       message: 'Failed to get revenue trend data',
@@ -92,7 +92,7 @@ router.get('/rides-completed', authenticate, hasAnyRole(['admin']), async (req, 
       data: ridesData
     });
   } catch (error) {
-    logError('Rides completed trend error:', error);
+    log('system', 'error', 'Rides completed trend error:', { error });
     return res.status(500).json({
       success: false,
       message: 'Failed to get rides completed trend data',
@@ -115,7 +115,7 @@ router.get('/user-acquisition', authenticate, hasAnyRole(['admin']), async (req,
       data: acquisitionData
     });
   } catch (error) {
-    logError('User acquisition error:', error);
+    log('system', 'error', 'User acquisition error:', { error });
     return res.status(500).json({
       success: false,
       message: 'Failed to get user acquisition data',

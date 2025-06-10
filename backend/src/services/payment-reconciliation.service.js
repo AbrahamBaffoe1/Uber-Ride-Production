@@ -4,6 +4,7 @@
  * Handles payment reconciliation processes to match transactions with rides
  */
 import { log } from './logging.service.js';
+// Use ES module imports
 import Transaction from '../mongodb/models/Transaction.js';
 import Ride from '../mongodb/models/Ride.js';
 
@@ -77,7 +78,7 @@ export const findUnreconciledRides = async (startDate, endDate) => {
     
     return unreconciledRides;
   } catch (error) {
-    logError('Error finding unreconciled rides:', error);
+    log('payment', 'error', 'Error finding unreconciled rides:', { error });
     throw error;
   }
 };
@@ -108,7 +109,7 @@ export const getCompletedRidesCount = async (startDate, endDate) => {
     
     return count;
   } catch (error) {
-    logError('Error counting completed rides:', error);
+    log('payment', 'error', 'Error counting completed rides:', { error });
     throw error;
   }
 };
@@ -139,7 +140,7 @@ export const getTotalTransactionsCount = async (startDate, endDate) => {
     
     return count;
   } catch (error) {
-    logError('Error counting total transactions:', error);
+    log('payment', 'error', 'Error counting total transactions:', { error });
     throw error;
   }
 };
@@ -194,7 +195,7 @@ export const matchTransactionToRide = async (transactionId, rideId) => {
     const amountDifference = Math.abs(transaction.amount - ride.fare) / ride.fare;
     
     if (amountDifference > tolerance) {
-      logInfo('Reconciliation amount mismatch', {
+      log('payment', 'info', 'Reconciliation amount mismatch', {
         transactionAmount: transaction.amount,
         rideFare: ride.fare,
         difference: amountDifference
@@ -220,7 +221,7 @@ export const matchTransactionToRide = async (transactionId, rideId) => {
     ]);
     
     // Log the successful reconciliation
-    logInfo('Transaction matched to ride successfully', {
+    log('payment', 'info', 'Transaction matched to ride successfully', {
       transactionId,
       rideId,
       amount: transaction.amount,
@@ -236,7 +237,7 @@ export const matchTransactionToRide = async (transactionId, rideId) => {
       }
     };
   } catch (error) {
-    logError('Error matching transaction to ride:', error);
+    log('payment', 'error', 'Error matching transaction to ride:', { error });
     return {
       success: false,
       message: 'Error matching transaction to ride: ' + error.message
@@ -317,7 +318,7 @@ export const reconcileRidePayment = async (rideId) => {
     ]);
     
     // Log the successful reconciliation
-    logInfo('Ride payment reconciled automatically', {
+    log('payment', 'info', 'Ride payment reconciled automatically', {
       rideId,
       transactionId: transaction._id,
       amount: transaction.amount,
@@ -335,7 +336,7 @@ export const reconcileRidePayment = async (rideId) => {
       }
     };
   } catch (error) {
-    logError('Error reconciling ride payment:', error);
+    log('payment', 'error', 'Error reconciling ride payment:', { error });
     return {
       success: false,
       message: 'Error reconciling ride payment: ' + error.message
@@ -388,7 +389,7 @@ export const runFullReconciliation = async (startDate, endDate, provider) => {
         });
       } catch (error) {
         results.failed++;
-        logError('Error reconciling ride in batch process:', error);
+        log('payment', 'error', 'Error reconciling ride in batch process:', { error });
         
         results.details.push({
           rideId: ride._id,
@@ -403,7 +404,7 @@ export const runFullReconciliation = async (startDate, endDate, provider) => {
     const processingTimeSec = processingTimeMs / 1000;
     
     // Log completion
-    logInfo('Full reconciliation process completed', {
+    log('payment', 'info', 'Full reconciliation process completed', {
       ...results,
       processingTimeMs,
       processingTimeSec,
@@ -424,7 +425,7 @@ export const runFullReconciliation = async (startDate, endDate, provider) => {
       }
     };
   } catch (error) {
-    logError('Error running full reconciliation process:', error);
+    log('payment', 'error', 'Error running full reconciliation process:', { error });
     return {
       success: false,
       message: 'Error running full reconciliation process: ' + error.message

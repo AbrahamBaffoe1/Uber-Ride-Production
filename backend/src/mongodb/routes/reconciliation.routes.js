@@ -6,7 +6,7 @@ import express from 'express';
 import { authenticate } from '../middlewares/auth.middleware.js';
 import { hasAnyRole } from '../middlewares/role.middleware.js';
 import * as reconciliationService from '../../services/payment-reconciliation.service.js';
-import { logInfo, logError } from '../../services/logging.service.js';
+import { log } from '../../services/logging.service.js';
 
 const router = express.Router();
 
@@ -58,7 +58,7 @@ router.get('/status', authenticate, hasAnyRole(['admin']), async (req, res) => {
       }
     });
   } catch (error) {
-    logError('Error getting reconciliation status:', error);
+    log('payment', 'error', 'Error getting reconciliation status:', { error });
     res.status(500).json({
       success: false,
       message: 'Internal server error while getting reconciliation status',
@@ -83,7 +83,7 @@ router.get('/unmatched-transactions', authenticate, hasAnyRole(['admin']), async
       data: result
     });
   } catch (error) {
-    logError('Error fetching unmatched transactions:', error);
+    log('payment', 'error', 'Error fetching unmatched transactions:', { error });
     res.status(500).json({
       success: false,
       message: 'Error fetching unmatched transactions',
@@ -108,7 +108,7 @@ router.get('/unreconciled-rides', authenticate, hasAnyRole(['admin']), async (re
       data: result
     });
   } catch (error) {
-    logError('Error fetching unreconciled rides:', error);
+    log('payment', 'error', 'Error fetching unreconciled rides:', { error });
     res.status(500).json({
       success: false,
       message: 'Error fetching unreconciled rides',
@@ -148,7 +148,7 @@ router.post('/match-transaction', authenticate, hasAnyRole(['admin']), async (re
       });
     }
   } catch (error) {
-    logError('Error matching transaction to ride:', error);
+    log('payment', 'error', 'Error matching transaction to ride:', { error });
     res.status(500).json({
       success: false,
       message: 'Error matching transaction to ride',
@@ -191,7 +191,7 @@ router.post('/reconcile-ride/:rideId', authenticate, hasAnyRole(['admin']), asyn
       });
     }
   } catch (error) {
-    logError('Error reconciling ride payment:', error);
+    log('payment', 'error', 'Error reconciling ride payment:', { error });
     res.status(500).json({
       success: false,
       message: 'Error reconciling ride payment',
@@ -211,15 +211,15 @@ router.post('/run-full', authenticate, hasAnyRole(['admin']), async (req, res) =
     
     // Start the reconciliation process asynchronously and return immediately
     // This avoids timeouts for long-running processes
-    logInfo('Starting full reconciliation process', { startDate, endDate, provider });
+    log('payment', 'info', 'Starting full reconciliation process', { startDate, endDate, provider });
     
     // Run the reconciliation process in the background
     reconciliationService.runFullReconciliation(startDate, endDate, provider)
       .then(result => {
-        logInfo('Reconciliation process completed', { result });
+        log('payment', 'info', 'Reconciliation process completed', { result });
       })
       .catch(error => {
-        logError('Reconciliation process failed', error);
+        log('payment', 'error', 'Reconciliation process failed', { error });
       });
     
     // Return response immediately to avoid timeout
@@ -236,7 +236,7 @@ router.post('/run-full', authenticate, hasAnyRole(['admin']), async (req, res) =
       }
     });
   } catch (error) {
-    logError('Error starting reconciliation process:', error);
+    log('payment', 'error', 'Error starting reconciliation process:', { error });
     res.status(500).json({
       success: false,
       message: 'Internal server error while starting reconciliation process',

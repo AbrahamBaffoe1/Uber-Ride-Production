@@ -4,10 +4,9 @@
  * Provides analytics data for payment transactions across the application
  */
 import { log } from './logging.service.js';
-// Use CommonJS-compatible import for Transaction model
-const Transaction = require('../mongodb/models/Transaction');
-// Use CommonJS-compatible import for Ride model
-const Ride = require('../mongodb/models/Ride');
+// Use ES module imports
+import Transaction from '../mongodb/models/Transaction.js';
+import Ride from '../mongodb/models/Ride.js';
 
 /**
  * Get payment analytics with various filters

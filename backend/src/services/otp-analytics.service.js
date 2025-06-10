@@ -4,6 +4,7 @@
  * Provides analytics data for OTP usage across the application
  */
 import { log } from './logging.service.js';
+// Use ES module imports
 import OTP from '../mongodb/models/OTP.js';
 
 /**

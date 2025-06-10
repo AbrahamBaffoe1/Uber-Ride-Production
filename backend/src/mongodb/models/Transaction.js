@@ -2,7 +2,7 @@
  * Transaction Model for MongoDB
  * Defines the schema and methods for payment transactions and rider earnings
  */
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 const Schema = mongoose.Schema;
 
 // Define transaction schema
@@ -304,4 +304,4 @@ transactionSchema.statics.createTransaction = async function(data) {
 // Create model
 const Transaction = mongoose.model('Transaction', transactionSchema);
 
-module.exports = Transaction;
+export default Transaction;
