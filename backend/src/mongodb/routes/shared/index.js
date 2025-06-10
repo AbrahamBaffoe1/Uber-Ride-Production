@@ -1,3 +1,4 @@
+
 /**
  * Shared routes for both rider and passenger apps
  * These routes work with both databases as needed
