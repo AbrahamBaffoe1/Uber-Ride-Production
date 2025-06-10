@@ -10,8 +10,16 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import networkService, { NetworkStatus, QueuedOperation } from '../../services/network.service';
+import { enhancedNetworkService, NetworkStatus } from '../../services/enhanced-network.service';
 import { colors } from '../../styles/theme';
+
+// Define a QueuedOperation interface to maintain compatibility
+interface QueuedOperation {
+  id: string;
+  method: string;
+  endpoint: string;
+  timestamp: number;
+}
 
 interface NetworkStatusIndicatorProps {
   showDetails?: boolean;
@@ -21,7 +29,7 @@ const NetworkStatusIndicator: React.FC<NetworkStatusIndicatorProps> = ({
   showDetails = true,
 }) => {
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>(
-    networkService.getNetworkStatus()
+    enhancedNetworkService.getStatus()
   );
   const [queuedOperations, setQueuedOperations] = useState<QueuedOperation[]>([]);
   const [showQueueModal, setShowQueueModal] = useState(false);
@@ -30,18 +38,18 @@ const NetworkStatusIndicator: React.FC<NetworkStatusIndicatorProps> = ({
 
   useEffect(() => {
     // Set up network status listener
-    const unsubscribe = networkService.addListener((status) => {
+    const handleNetworkStatusChange = (status: NetworkStatus) => {
       setNetworkStatus(status);
 
       // Show indicator when disconnected, hide when connected
-      if (status === NetworkStatus.DISCONNECTED) {
+      if (status === 'disconnected') {
         setIsVisible(true);
         Animated.timing(animatedOpacity, {
           toValue: 1,
           duration: 300,
           useNativeDriver: true,
         }).start();
-      } else if (status === NetworkStatus.CONNECTED) {
+      } else if (status === 'connected') {
         Animated.timing(animatedOpacity, {
           toValue: 0,
           duration: 300,
@@ -50,29 +58,30 @@ const NetworkStatusIndicator: React.FC<NetworkStatusIndicatorProps> = ({
           setIsVisible(false);
         });
       }
-    });
+    };
+    
+    enhancedNetworkService.addStatusListener(handleNetworkStatusChange);
 
-    // Initial check for queued operations
-    updateQueuedOperations();
-
-    // Set up an interval to update queued operations
-    const interval = setInterval(updateQueuedOperations, 5000);
+    // Simulated empty queued operations since enhanced service doesn't expose them yet
+    setQueuedOperations([]);
 
     return () => {
-      unsubscribe();
-      clearInterval(interval);
+      enhancedNetworkService.removeStatusListener(handleNetworkStatusChange);
     };
   }, [animatedOpacity]);
 
   // Update the list of queued operations
+  // Currently the enhanced network service doesn't expose pending operations,
+  // but we keep this interface for future compatibility
   const updateQueuedOperations = () => {
-    const operations = networkService.getPendingOperations();
-    setQueuedOperations(operations);
+    // When the enhanced network service supports this functionality, 
+    // we'll use it here
+    setQueuedOperations([]);
   };
 
   // Handle tap on the indicator to show queued operations
   const handleIndicatorPress = () => {
-    if (showDetails && networkStatus === NetworkStatus.DISCONNECTED) {
+    if (showDetails && networkStatus === 'disconnected') {
       updateQueuedOperations();
       setShowQueueModal(true);
     }
@@ -81,10 +90,12 @@ const NetworkStatusIndicator: React.FC<NetworkStatusIndicatorProps> = ({
   // Get indicator text based on network status
   const getStatusText = () => {
     switch (networkStatus) {
-      case NetworkStatus.CONNECTED:
+      case 'connected':
         return 'Online';
-      case NetworkStatus.DISCONNECTED:
+      case 'disconnected':
         return 'Offline';
+      case 'limited':
+        return 'Limited Connectivity';
       default:
         return 'Checking connection...';
     }
@@ -93,10 +104,12 @@ const NetworkStatusIndicator: React.FC<NetworkStatusIndicatorProps> = ({
   // Get icon based on network status
   const getStatusIcon = () => {
     switch (networkStatus) {
-      case NetworkStatus.CONNECTED:
+      case 'connected':
         return 'cloud-done-outline';
-      case NetworkStatus.DISCONNECTED:
+      case 'disconnected':
         return 'cloud-offline-outline';
+      case 'limited':
+        return 'cloud-outline';
       default:
         return 'help-outline';
     }
@@ -114,7 +127,7 @@ const NetworkStatusIndicator: React.FC<NetworkStatusIndicatorProps> = ({
   };
 
   // If not visible, don't render anything
-  if (!isVisible && networkStatus !== NetworkStatus.DISCONNECTED) {
+  if (!isVisible && networkStatus !== 'disconnected') {
     return null;
   }
 
@@ -125,7 +138,10 @@ const NetworkStatusIndicator: React.FC<NetworkStatusIndicatorProps> = ({
           styles.container,
           {
             opacity: animatedOpacity,
-            backgroundColor: networkStatus === NetworkStatus.DISCONNECTED ? colors.danger : colors.success,
+            backgroundColor: 
+              networkStatus === 'disconnected' ? colors.danger : 
+              networkStatus === 'limited' ? colors.warning : 
+              colors.success,
           },
         ]}
       >
@@ -136,12 +152,12 @@ const NetworkStatusIndicator: React.FC<NetworkStatusIndicatorProps> = ({
         >
           <Ionicons name={getStatusIcon()} size={16} color="#fff" />
           <Text style={styles.text}>{getStatusText()}</Text>
-          {networkStatus === NetworkStatus.DISCONNECTED && queuedOperations.length > 0 && (
+          {networkStatus === 'disconnected' && queuedOperations.length > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{queuedOperations.length}</Text>
             </View>
           )}
-          {showDetails && networkStatus === NetworkStatus.DISCONNECTED && (
+          {showDetails && networkStatus === 'disconnected' && (
             <Ionicons name="chevron-down" size={16} color="#fff" />
           )}
         </TouchableOpacity>

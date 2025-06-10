@@ -2,6 +2,8 @@ import io, { Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SOCKET_URL } from '../config';
 import { Platform } from 'react-native';
+import { AUTH_TOKEN_KEY } from '../../constants/auth';
+import NetInfo from '@react-native-community/netinfo';
 
 /**
  * Socket events that can be listened for
@@ -51,7 +53,7 @@ class SocketService {
     }
     
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
       
       // Don't connect if no token is available (user not authenticated)
       if (!token) {
@@ -64,12 +66,15 @@ class SocketService {
       // Generate a simple device identifier if needed
       const deviceId = `rider-${Math.random().toString(36).substring(2, 15)}`;
       
+      // Try to improve socket connection reliability
       this.socket = io(SOCKET_URL, {
-        transports: ['websocket'],
+        transports: ['websocket', 'polling'], // Add polling as fallback transport
         autoConnect: true,
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionAttempts: 10,
+        timeout: 20000, // Increase connection timeout
+        forceNew: true, // Force a new connection
         auth: {
           token
         },
@@ -116,6 +121,13 @@ class SocketService {
     
     this.socket.on('connect_error', (error) => {
       console.error('Socket connection error:', error);
+      
+      // Try to switch to polling if websocket fails
+      if (this.socket && this.socket.io && this.socket.io.opts && this.socket.io.opts.transports && this.socket.io.opts.transports[0] === 'websocket') {
+        console.log('Switching socket transport to polling as fallback');
+        this.socket.io.opts.transports = ['polling', 'websocket'];
+      }
+      
       this.handleReconnect();
     });
     
@@ -205,11 +217,29 @@ class SocketService {
    * Reconnect to the socket server
    */
   async reconnect(): Promise<void> {
-    if (this.socket) {
-      this.socket.disconnect();
-      this.socket.connect();
-    } else {
-      await this.initialize();
+    try {
+      // Check if network is available before attempting reconnect
+      const netInfo = await NetInfo.fetch();
+      if (!netInfo.isConnected) {
+        console.log('Network unavailable, delaying reconnect');
+        // Will retry on next reconnect interval
+        return;
+      }
+      
+      // Clean disconnect first
+      if (this.socket) {
+        this.socket.disconnect();
+        
+        // Small delay before reconnecting to avoid rapid reconnect cycles
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Try to connect again
+        this.socket.connect();
+      } else {
+        await this.initialize();
+      }
+    } catch (error) {
+      console.error('Error during socket reconnection:', error);
     }
   }
   
@@ -220,7 +250,7 @@ class SocketService {
     if (!this.socket) return;
     
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
       
       if (!token) {
         throw new Error('Authentication token not found');

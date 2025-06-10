@@ -17,7 +17,7 @@ import { errorHandler } from './api/v1/middlewares/errorHandler.js';
 import { initializeSocketServer } from './services/socket.service.js';
 // MongoDB tracking services
 import { initializeTracking } from './services/real-time-tracking.service.js';
-import { initializeEnhancedTracking } from './services/enhanced-tracking.service.js';
+import { initializeTracking as initializeEnhancedTracking } from './services/enhanced-tracking.service.js';
 import * as realTimeAvailability from './services/real-time-availability.service.js';
 import * as pricingEngine from './services/pricing-engine.service.js';
 import * as riderMatching from './services/rider-matching.service.js';
